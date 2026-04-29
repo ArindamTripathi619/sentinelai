@@ -1,6 +1,9 @@
 # SentinelAI — Trust Score Calculator
 # Owner: Akash
-# Combines rules engine + behavioral signals + ML anomaly score into final trust score
+# Branch: feature/security-engine
+# Combines rules engine + behavioral signals + ML anomaly score into final trust score.
+# Trust score formula (from docs/architecture.md):
+#   trust_score = 100 - rule_penalty - behavioral_penalty - ml_penalty
 
 from dataclasses import dataclass
 from typing import List, Optional
@@ -41,13 +44,13 @@ def compute_behavioral_penalty(behavioral: BehavioralPayload) -> int:
 
     # No typing variance → uniform bot keypresses
     if behavioral.typing_variance_ms < 20:
-        penalty += 7
+        penalty += 10  # architecture.md: -10 pts
     elif behavioral.typing_variance_ms < 50:
         penalty += 3
 
     # No mouse movement → headless browser
     if behavioral.mouse_move_count == 0:
-        penalty += 3
+        penalty += 5  # architecture.md: -5 pts
 
     return min(penalty, 25)  # cap at 25
 
@@ -88,10 +91,14 @@ def score_registration(
     registrations_from_ip_last_hour: int,
     accounts_with_same_ua_today: int,
     ml_anomaly_score: Optional[float] = None,
+    registrations_per_minute: int = 0,
 ) -> ScoreResult:
     """
     Full scoring pipeline for new user registration.
     Called by Atul's /api/register endpoint.
+
+    registrations_per_minute — optional; if provided, enables the
+    platform_velocity_spike rule (alert only, no individual penalty).
     """
     # Layer 1: Rules engine
     rules_output: RulesEngineOutput = run_registration_rules(
@@ -101,6 +108,7 @@ def score_registration(
         user_agent=user_agent,
         registrations_from_ip_last_hour=registrations_from_ip_last_hour,
         accounts_with_same_ua_today=accounts_with_same_ua_today,
+        registrations_per_minute=registrations_per_minute,
     )
 
     # Layer 2: Behavioral signals

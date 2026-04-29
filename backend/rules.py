@@ -1,19 +1,63 @@
 # SentinelAI — Security Rules Engine
 # Owner: Akash
-# Each rule returns a penalty (int) and optionally creates an alert.
-# All rules are independent — they don't call each other.
+# Branch: feature/security-engine
+#
+# Each rule returns a RuleResult with a penalty and optional alert payload.
+# All rules are independent — they do not call each other.
+# Run all rules for a request via run_registration_rules() or run_login_rules().
 
 from dataclasses import dataclass, field
 from typing import List, Optional
 import re
 
-# Disposable email domains to flag
+# ---------------------------------------------------------------------------
+# Disposable / temporary email domain blocklist
+# Source: aggregated from public disposable-email-domains lists
+# ---------------------------------------------------------------------------
 DISPOSABLE_DOMAINS = {
-    "temp.com", "mailinator.com", "guerrillamail.com",
-    "throwam.com", "fakeinbox.com", "trashmail.com",
-    "yopmail.com", "getairmail.com", "dispostable.com"
+    # Classic throwaway services
+    "temp.com", "tempmail.com", "tempinbox.com", "tempr.email",
+    "mailinator.com", "mailinator2.com",
+    "guerrillamail.com", "guerrillamail.net", "guerrillamail.org",
+    "guerrillamail.biz", "guerrillamail.de", "guerrillamail.info",
+    "throwam.com", "throwaway.email",
+    "fakeinbox.com", "fakeinbox.net",
+    "trashmail.com", "trashmail.net", "trashmail.me", "trashmail.at",
+    "trashmail.io",
+    "yopmail.com", "yopmail.fr",
+    "getairmail.com",
+    "dispostable.com",
+    "sharklasers.com", "guerrillamailblock.com",
+    "spam4.me", "spamgourmet.com", "spamgourmet.net",
+    "maildrop.cc",
+    "discard.email",
+    "mailnull.com",
+    "spamthisplease.com",
+    "spamhereplease.com",
+    "crap.la",
+    "objectmail.com",
+    "ownmail.net",
+    "jetable.fr.nf", "jetable.net",
+    "nospam.ze.tc",
+    "hulapla.de",
+    "wegwerfadresse.de",
+    "sofort-mail.de",
 }
 
+# ---------------------------------------------------------------------------
+# Minimum time (seconds) a human is expected to take to fill a form
+# ---------------------------------------------------------------------------
+MIN_REGISTRATION_SECONDS = float(3.0)
+
+# ---------------------------------------------------------------------------
+# Platform-level registration velocity limit (signups per minute)
+# ---------------------------------------------------------------------------
+PLATFORM_VELOCITY_LIMIT = 10
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 @dataclass
 class RuleResult:
@@ -32,14 +76,17 @@ class RulesEngineOutput:
     alerts_to_create: List[RuleResult] = field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Individual rule implementations
+# ---------------------------------------------------------------------------
+
 def check_velocity_ip(ip_address: str, registrations_from_ip_last_hour: int) -> RuleResult:
     """
     Rule: More than 3 registrations from the same IP in the last hour → bot wave.
+
     Penalty: 25 points
+    Alert:   bot_wave / critical
     """
-    # TODO: Akash implements this
-    # Query the DB for how many registrations came from this IP in the last 60 minutes
-    # For now, accept the count as a parameter (Atul's endpoint will compute it)
     limit = 3
     triggered = registrations_from_ip_last_hour > limit
     return RuleResult(
@@ -49,23 +96,40 @@ def check_velocity_ip(ip_address: str, registrations_from_ip_last_hour: int) -> 
         alert_type="bot_wave" if triggered else None,
         alert_severity="critical" if triggered else None,
         alert_description=(
-            f"IP {ip_address} made {registrations_from_ip_last_hour} registrations in the last hour"
+            f"IP {ip_address} made {registrations_from_ip_last_hour} registrations "
+            f"in the last hour (limit: {limit})"
             if triggered else None
-        )
+        ),
     )
 
 
 def check_email_pattern(email: str) -> RuleResult:
     """
-    Rule: Sequential email names (user1, user2...) or disposable domains → flag.
+    Rule: Sequential / auto-generated email names or disposable domains → flag.
+
+    Patterns flagged:
+      - Disposable domain (temp.com, mailinator.com, etc.)
+      - Sequential username: user1, test99, bot3, fake7, temp5, admin2
+      - Purely numeric local part: 123456@domain.com
+      - Generic numeric suffix on any base: name123@domain.com (≥3 digits)
+
     Penalty: 20 points
     """
-    # TODO: Akash implements this
-    domain = email.split("@")[-1].lower()
-    local = email.split("@")[0].lower()
+    try:
+        local, domain = email.lower().rsplit("@", 1)
+    except ValueError:
+        # Malformed email — flag it
+        return RuleResult(rule_name="email_pattern", triggered=True, penalty=20)
 
     is_disposable = domain in DISPOSABLE_DOMAINS
-    is_sequential = bool(re.match(r'^(user|test|temp|fake|bot)\d+$', local))
+
+    # Sequential bot patterns
+    sequential_patterns = [
+        r'^(user|test|temp|fake|bot|admin|demo|sample|guest|anon)\d+$',  # user1, admin99
+        r'^\d+$',                                                          # 123456
+        r'^[a-z]{2,10}\d{3,}$',                                           # name1234
+    ]
+    is_sequential = any(re.match(p, local) for p in sequential_patterns)
 
     triggered = is_disposable or is_sequential
     return RuleResult(
@@ -75,12 +139,16 @@ def check_email_pattern(email: str) -> RuleResult:
     )
 
 
-def check_speed_bot(time_to_complete_sec: float, min_seconds: float = 4.0) -> RuleResult:
+def check_speed_bot(
+    time_to_complete_sec: float,
+    min_seconds: float = MIN_REGISTRATION_SECONDS,
+) -> RuleResult:
     """
-    Rule: Registration completed faster than minimum human time → speed bot.
+    Rule: Registration completed faster than a human can realistically type.
+
     Penalty: 20 points
+    Alert:   speed_bot / high
     """
-    # TODO: Akash implements this
     triggered = time_to_complete_sec < min_seconds
     return RuleResult(
         rule_name="speed_bot",
@@ -89,23 +157,32 @@ def check_speed_bot(time_to_complete_sec: float, min_seconds: float = 4.0) -> Ru
         alert_type="speed_bot" if triggered else None,
         alert_severity="high" if triggered else None,
         alert_description=(
-            f"Registration completed in {time_to_complete_sec:.1f}s (threshold: {min_seconds}s)"
+            f"Registration completed in {time_to_complete_sec:.2f}s "
+            f"(minimum expected: {min_seconds}s)"
             if triggered else None
-        )
+        ),
     )
 
 
 def check_duplicate_device(user_agent: str, accounts_with_same_ua_today: int) -> RuleResult:
     """
-    Rule: Same user-agent string on 3+ different accounts in 24h → shared bot device.
+    Rule: Same user-agent string seen on 3+ different accounts in 24 hours.
+    Indicates a shared bot device / headless browser pool.
+
     Penalty: 15 points
     """
-    # TODO: Akash implements this
     triggered = accounts_with_same_ua_today >= 3
     return RuleResult(
         rule_name="duplicate_device",
         triggered=triggered,
         penalty=15 if triggered else 0,
+        alert_type="duplicate_device" if triggered else None,
+        alert_severity="medium" if triggered else None,
+        alert_description=(
+            f"User-agent '{user_agent[:60]}' used by {accounts_with_same_ua_today} "
+            f"accounts today"
+            if triggered else None
+        ),
     )
 
 
@@ -113,17 +190,23 @@ def check_geo_drift(
     user_id: str,
     current_country: str,
     last_country: Optional[str],
-    minutes_since_last_login: Optional[float]
+    minutes_since_last_login: Optional[float],
+    window_minutes: float = 120.0,
 ) -> RuleResult:
     """
-    Rule: Same account logs in from different country within 2 hours → session hijack / drift.
-    Penalty: 30 points (applied to login, not registration)
+    Rule: Same account logs in from a different country within the drift window (default 2h).
+    Signals session hijacking, credential stuffing, or account sharing.
+
+    Penalty: 30 points (applied to login trust score, not registration)
+    Alert:   geo_drift / high
     """
-    # TODO: Akash implements this
     if last_country is None or minutes_since_last_login is None:
         return RuleResult(rule_name="geo_drift", triggered=False, penalty=0)
 
-    triggered = (current_country != last_country) and (minutes_since_last_login < 120)
+    country_changed = current_country.strip().lower() != last_country.strip().lower()
+    within_window = minutes_since_last_login < window_minutes
+
+    triggered = country_changed and within_window
     return RuleResult(
         rule_name="geo_drift",
         triggered=triggered,
@@ -131,12 +214,43 @@ def check_geo_drift(
         alert_type="geo_drift" if triggered else None,
         alert_severity="high" if triggered else None,
         alert_description=(
-            f"User {user_id} logged in from {last_country} then {current_country} "
+            f"User {user_id} logged in from {last_country}, then {current_country} "
             f"within {minutes_since_last_login:.0f} minutes"
             if triggered else None
-        )
+        ),
     )
 
+
+def check_platform_velocity_spike(
+    registrations_per_minute: int,
+    limit: int = PLATFORM_VELOCITY_LIMIT,
+) -> RuleResult:
+    """
+    Rule: Platform-wide registration rate exceeds the spike threshold.
+    This is a global alert — it does NOT penalise individual users.
+    Used to populate Panel 4 (Registration Velocity Chart) on the admin dashboard.
+
+    Penalty: 0 (platform alert only)
+    Alert:   velocity_spike / high
+    """
+    triggered = registrations_per_minute > limit
+    return RuleResult(
+        rule_name="platform_velocity_spike",
+        triggered=triggered,
+        penalty=0,  # no individual user penalty — platform-level event only
+        alert_type="velocity_spike" if triggered else None,
+        alert_severity="high" if triggered else None,
+        alert_description=(
+            f"Platform registration rate: {registrations_per_minute}/min "
+            f"(limit: {limit}/min)"
+            if triggered else None
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Aggregated runners — called by scorer.py
+# ---------------------------------------------------------------------------
 
 def run_registration_rules(
     email: str,
@@ -145,10 +259,13 @@ def run_registration_rules(
     user_agent: str,
     registrations_from_ip_last_hour: int,
     accounts_with_same_ua_today: int,
+    registrations_per_minute: int = 0,
 ) -> RulesEngineOutput:
     """
-    Run all registration-time rules and aggregate the output.
-    Called by the /api/register endpoint (via scorer.py).
+    Run all registration-time rules and aggregate the result.
+    Called by scorer.py → score_registration().
+
+    registrations_per_minute — optional; pass if computed by the DB query.
     """
     results = [
         check_velocity_ip(ip_address, registrations_from_ip_last_hour),
@@ -156,6 +273,10 @@ def run_registration_rules(
         check_speed_bot(time_to_complete_sec),
         check_duplicate_device(user_agent, accounts_with_same_ua_today),
     ]
+
+    # Platform-level spike check (alert only, no individual penalty)
+    if registrations_per_minute > 0:
+        results.append(check_platform_velocity_spike(registrations_per_minute))
 
     output = RulesEngineOutput()
     for r in results:
@@ -176,7 +297,8 @@ def run_login_rules(
     minutes_since_last_login: Optional[float],
 ) -> RulesEngineOutput:
     """
-    Run all login-time rules (currently just geo drift).
+    Run all login-time rules and aggregate the result.
+    Called by scorer.py → score_login().
     """
     results = [
         check_geo_drift(user_id, current_country, last_country, minutes_since_last_login),
