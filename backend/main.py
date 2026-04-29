@@ -61,8 +61,10 @@ def health():
 
 # --- Stub routes (replace with real routers as work is completed) ---
 
-
-
+@app.get("/api/alerts")
+async def alerts_stub():
+    # TODO: Wire to Akash's rules engine output
+    return {"alerts": []}
 
 @app.post("/api/score")
 async def score_stub():
