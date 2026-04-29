@@ -116,7 +116,7 @@ export default function Dashboard() {
     };
 
     loadDashboard();
-    const interval = setInterval(loadDashboard, 15000);
+    const interval = setInterval(loadDashboard, 4000);  // Poll every 4 seconds for near-real-time threat feed
     return () => {
       mounted = false;
       clearInterval(interval);

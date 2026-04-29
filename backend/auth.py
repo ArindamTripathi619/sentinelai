@@ -67,11 +67,14 @@ def _create_alerts(db: Session, user_id: str, email: str, triggered_rules: list[
         "duplicate_device": "medium",
         "email_pattern": "medium",
         "velocity_spike": "high",
+        "platform_velocity_spike": "high",
     }
     for rule in triggered_rules:
+        # Rename platform_velocity_spike to bot_wave for dashboard consistency
+        alert_type = "bot_wave" if rule == "platform_velocity_spike" else rule
         db.add(
             Alert(
-                type=rule,
+                type=alert_type,
                 severity=severity_map.get(rule, "medium"),
                 description=f"Rule triggered: {rule} for {email}",
                 affected_user_ids=user_id,
@@ -167,11 +170,19 @@ async def register(request: Request, db: Session = Depends(get_db)):
     user_agent = _extract_user_agent(request, data)
     
     hour_ago = datetime.utcnow() - timedelta(hours=1)
+    minute_ago = datetime.utcnow() - timedelta(minutes=1)
     reg_count, same_ua_count = _get_registration_counts(
         db,
         ip_address=ip_address,
         user_agent=user_agent,
         since=hour_ago,
+    )
+    
+    # Query platform-wide registrations per minute for spike detection
+    registrations_per_minute = (
+        db.query(Event)
+        .filter(Event.action == "register", Event.timestamp >= minute_ago)
+        .count()
     )
     
     score_result = score_registration(
@@ -181,6 +192,7 @@ async def register(request: Request, db: Session = Depends(get_db)):
         user_agent=user_agent,
         registrations_from_ip_last_hour=reg_count,
         accounts_with_same_ua_today=same_ua_count,
+        registrations_per_minute=registrations_per_minute,
     )
     
     new_user = User(
@@ -300,11 +312,24 @@ async def login(request: Request, db: Session = Depends(get_db)):
     # Generate JWT token
     access_token = create_access_token(user.id)
     
-    # Determine if OTP is needed
-    otp_required = score_result.trust_score < 40
+    # Determine action based on recommendation (progressive auth policy)
+    # allow (>70): smooth login, otp (40-70): OTP challenge, captcha/quarantine (<40): block + alert
+    otp_required = score_result.recommendation in ["otp", "captcha"]
+    is_blocked = score_result.recommendation == "quarantine"
     
-    if otp_required:
-        # Create OTP session
+    if is_blocked:
+        # Trust score too low — reject login and alert
+        return {
+            "token": None,
+            "trust_score": score_result.trust_score,
+            "otp_required": False,
+            "is_blocked": True,
+            "user_id": user.id,
+            "recommendation": score_result.recommendation,
+            "message": "Account flagged. Please contact support."
+        }
+    elif otp_required:
+        # Create OTP session for medium-trust users
         otp_code = secrets.randbelow(1000000)
         otp_code_str = str(otp_code).zfill(6)
         otp_session = OtpSession(
@@ -321,9 +346,11 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "trust_score": score_result.trust_score,
             "otp_required": True,
             "otp_session_id": otp_session.id,
-            "user_id": user.id
+            "user_id": user.id,
+            "recommendation": score_result.recommendation
         }
     else:
+        # High-trust user — allow smooth login
         return {
             "token": access_token,
             "token_type": "bearer",
