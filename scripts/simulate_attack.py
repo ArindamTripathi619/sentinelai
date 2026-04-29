@@ -18,7 +18,7 @@ import argparse
 import random
 import string
 
-API_BASE = "http://localhost:8000/api"
+API_BASE = "http://localhost:9000/api"
 
 # ANSI colors for terminal output during demo
 RED     = "\033[91m"
