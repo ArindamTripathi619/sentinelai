@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, clearUserSession } from '../lib/api';
+import UserTimeline from './UserTimeline';
 
 const COLORS = {
   Blocked: '#ef4444',     // Red
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedUser, setSelectedUser] = useState(null);
 
   const alerts = summary
     ? [
@@ -299,7 +301,10 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button className="text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 p-1.5 rounded-md transition-colors border border-gray-700">
+                      <button
+                        onClick={() => setSelectedUser(user)}
+                        className="text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 p-1.5 rounded-md transition-colors border border-gray-700"
+                      >
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     </td>
@@ -310,6 +315,14 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {selectedUser && (
+        <UserTimeline
+          userId={selectedUser.user_id}
+          userEmail={selectedUser.email}
+          onClose={() => setSelectedUser(null)}
+        />
+      )}
     </div>
   );
 }
