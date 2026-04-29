@@ -16,7 +16,7 @@ def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_
     today = datetime.utcnow().date()
     # Filter alerts created today
     flagged_today = db.query(Alert).filter(Alert.timestamp >= today).count()
-    bot_waves_detected = db.query(Alert).filter(Alert.type == "bot_wave").count()
+    bot_waves_detected = db.query(Alert).filter(Alert.type == "bot_wave", Alert.timestamp >= today).count()
     
     quarantined = db.query(User).filter(User.status == "quarantined").count()
     blocked = db.query(User).filter(User.status == "blocked").count()

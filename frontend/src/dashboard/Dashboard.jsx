@@ -30,27 +30,27 @@ export default function Dashboard() {
   const [velocityData, setVelocityData] = useState([]);
   const [trustScoreData, setTrustScoreData] = useState([]);
   const [users, setUsers] = useState([]);
+  const [liveAlerts, setLiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const alerts = summary
-    ? [
-        {
-          id: 'summary-1',
-          type: 'Bot Waves',
-          desc: `${summary.bot_waves_detected} bot wave(s) detected`,
-          severity: summary.bot_waves_detected > 0 ? 'high' : 'low',
-          time: 'Live',
-        },
-        {
-          id: 'summary-2',
-          type: 'Trust',
-          desc: `${summary.quarantined} quarantined users, ${summary.blocked} blocked users`,
-          severity: summary.blocked > 0 ? 'high' : 'medium',
-          time: 'Live',
-        },
-      ]
-    : [];
+  const getAlertIcon = (alertType) => {
+    switch (alertType?.toLowerCase()) {
+      case 'bot_wave':
+      case 'velocity_spike':
+        return '🤖';
+      case 'geo_drift':
+        return '🌍';
+      case 'speed_bot':
+        return '⚡';
+      case 'duplicate_device':
+        return '📱';
+      case 'email_pattern':
+        return '✉️';
+      default:
+        return '⚠️';
+    }
+  };
 
   const kpis = summary
     ? [
@@ -67,11 +67,12 @@ export default function Dashboard() {
     const loadDashboard = async () => {
       try {
         setError('');
-        const [summaryRes, velocityRes, trustRes, usersRes] = await Promise.all([
+        const [summaryRes, velocityRes, trustRes, usersRes, alertsRes] = await Promise.all([
           api.get('/analytics/summary'),
           api.get('/analytics/velocity?window=1h&bucket=1min'),
           api.get('/analytics/trust-distribution'),
           api.get('/users?limit=8&offset=0'),
+          api.get('/alerts?limit=15'),
         ]);
 
         if (!mounted) return;
@@ -90,6 +91,16 @@ export default function Dashboard() {
         })));
 
         setUsers(usersRes.data.users || []);
+
+        // Format the live alerts from the API
+        const formattedAlerts = (alertsRes.data.alerts || []).map((a) => ({
+          id: a.alert_id,
+          type: a.type,
+          desc: getAlertIcon(a.type) + ' ' + (a.description || a.type),
+          severity: a.severity,
+          time: new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+        setLiveAlerts(formattedAlerts);
       } catch (err) {
         if (!mounted) return;
         if (err?.response?.status === 401) {
@@ -196,7 +207,7 @@ export default function Dashboard() {
             Live Threat Feed
           </h2>
           <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-            {alerts.map((alert) => (
+            {liveAlerts.map((alert) => (
               <div key={alert.id} className="bg-gray-900/50 border border-gray-700 p-4 rounded-lg animate-in fade-in slide-in-from-right-4 duration-500">
                 <div className="flex justify-between items-start mb-1">
                   <span className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
