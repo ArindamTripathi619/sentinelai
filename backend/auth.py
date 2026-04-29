@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import random
 import string
+import uuid
 
 from database import get_db
 from models import User, Event, OtpSession, Alert
@@ -21,7 +22,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = os.getenv("JWT_SECRET", "supersecretkey")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours per API.md
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
@@ -60,13 +61,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     return user
 
 # Pydantic models
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
+class BehavioralPayload(BaseModel):
     typing_variance_ms: Optional[float] = None
     time_to_complete_sec: Optional[float] = None
     mouse_move_count: Optional[int] = None
     keypress_count: Optional[int] = None
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    behavioral: Optional[BehavioralPayload] = None
 
 class LoginRequest(BaseModel):
     email: str
@@ -76,27 +80,39 @@ class LoginRequest(BaseModel):
 
 class OtpSendRequest(BaseModel):
     email: str
+    otp_session_id: str
 
 class OtpVerifyRequest(BaseModel):
-    email: str
+    otp_session_id: str
     otp_code: str
 
-@router.post("/register")
+@router.post("/register", status_code=201)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == req.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # Calculate a mock trust score based on "speed bot" rule
+    trust_score = 100
+    status_label = "active"
+    if req.behavioral and req.behavioral.time_to_complete_sec and req.behavioral.time_to_complete_sec < 4:
+        trust_score = 18
+        status_label = "quarantined"
+
     hashed_password = get_password_hash(req.password)
     user = User(
         email=req.email,
         password_hash=hashed_password,
-        typing_variance_ms=req.typing_variance_ms,
-        time_to_complete_sec=req.time_to_complete_sec,
-        mouse_move_count=req.mouse_move_count,
-        keypress_count=req.keypress_count,
-        trust_score=100
+        trust_score=trust_score,
+        status=status_label
     )
+    
+    if req.behavioral:
+        user.typing_variance_ms = req.behavioral.typing_variance_ms
+        user.time_to_complete_sec = req.behavioral.time_to_complete_sec
+        user.mouse_move_count = req.behavioral.mouse_move_count
+        user.keypress_count = req.behavioral.keypress_count
+
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -109,7 +125,20 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(event)
     db.commit()
 
-    return {"message": "User registered successfully", "user_id": user.id}
+    if status_label == "quarantined":
+         return {
+            "user_id": user.id,
+            "trust_score": user.trust_score,
+            "status": user.status,
+            "message": "Account flagged for review"
+        }
+
+    return {
+        "user_id": user.id,
+        "trust_score": user.trust_score,
+        "status": user.status,
+        "message": "Registration successful"
+    }
 
 @router.post("/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
@@ -119,7 +148,13 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             event = Event(user_id=user.id, action="login_failed", ip_address=req.ip_address, user_agent=req.user_agent)
             db.add(event)
             db.commit()
-        raise HTTPException(status_code=401, detail="Invalid credential")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if user.status == "blocked" or (user.status == "quarantined" and user.trust_score < 20):
+        raise HTTPException(status_code=403, detail={
+            "error": "Account suspended pending review",
+            "trust_score": user.trust_score
+        })
 
     user.last_ip = req.ip_address
     user.last_login_at = datetime.utcnow()
@@ -129,17 +164,39 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     db.add(event)
     db.commit()
 
-    # check trust score
-    if user.trust_score < 40:
-        return {"status": "otp_required"}
+    # check trust score thresholds (API.md 412-416)
+    if user.trust_score < 70:
+        # Create OTP session
+        otp_session_id = str(uuid.uuid4())
+        otp_code = ''.join(random.choices(string.digits, k=6))
+        otp_session = OtpSession(
+            id=otp_session_id,
+            user_id=user.id,
+            otp_code=otp_code,
+            expires_at=datetime.utcnow() + timedelta(minutes=5)
+        )
+        db.add(otp_session)
+        db.commit()
+
+        return {
+            "token": None,
+            "trust_score": user.trust_score,
+            "otp_required": True,
+            "otp_session_id": otp_session_id,
+            "user_id": user.id
+        }
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": user.id}, expires_delta=access_token_expires)
     
-    return {"access_token": access_token, "token_type": "bearer", "status": "success"}
+    return {
+        "token": access_token,
+        "trust_score": user.trust_score,
+        "otp_required": False,
+        "user_id": user.id
+    }
 
 def send_email_stub(to_email: str, subject: str, body: str):
-    # Simulated SMTP send
     try:
         gmail_user = os.getenv("GMAIL_USER")
         gmail_password = os.getenv("GMAIL_APP_PASSWORD")
@@ -158,36 +215,29 @@ def send_email_stub(to_email: str, subject: str, body: str):
 
 @router.post("/otp/send")
 def send_otp(req: OtpSendRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    otp_code = ''.join(random.choices(string.digits, k=6))
-    
-    otp_session = OtpSession(
-        user_id=user.id,
-        otp_code=otp_code,
-        expires_at=datetime.utcnow() + timedelta(minutes=10)
-    )
-    db.add(otp_session)
-    db.commit()
+    session = db.query(OtpSession).filter(OtpSession.id == req.otp_session_id).first()
+    if not session or session.used or session.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP session")
 
-    send_email_stub(user.email, "SentinelAI OTP", f"Your OTP is {otp_code}")
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if not user:
+         raise HTTPException(status_code=404, detail="User not found")
+
+    send_email_stub(user.email, "SentinelAI OTP", f"Your OTP is {session.otp_code}")
 
     event = Event(user_id=user.id, action="otp_sent", trust_score_at_time=user.trust_score)
     db.add(event)
     db.commit()
 
-    return {"message": "OTP sent"}
+    return {
+        "message": "OTP sent successfully",
+        "expires_in_seconds": 300
+    }
 
 @router.post("/otp/verify")
 def verify_otp(req: OtpVerifyRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     session = db.query(OtpSession).filter(
-        OtpSession.user_id == user.id, 
+        OtpSession.id == req.otp_session_id, 
         OtpSession.otp_code == req.otp_code,
         OtpSession.used == False,
         OtpSession.expires_at > datetime.utcnow()
@@ -199,6 +249,8 @@ def verify_otp(req: OtpVerifyRequest, db: Session = Depends(get_db)):
     session.used = True
     db.commit()
 
+    user = db.query(User).filter(User.id == session.user_id).first()
+    
     event = Event(user_id=user.id, action="otp_verified", trust_score_at_time=user.trust_score)
     db.add(event)
     db.commit()
@@ -206,4 +258,9 @@ def verify_otp(req: OtpVerifyRequest, db: Session = Depends(get_db)):
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": user.id}, expires_delta=access_token_expires)
     
-    return {"access_token": access_token, "token_type": "bearer", "status": "success"}
+    return {
+        "token": access_token,
+        "user_id": user.id,
+        "message": "Login successful"
+    }
+
