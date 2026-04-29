@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from pydantic import BaseModel
+import json
 
 from database import get_db
 from models import User, Event
@@ -83,19 +84,49 @@ def get_user_timeline(user_id: str, db: Session = Depends(get_db), current_user:
     
     return {
         "user_id": user_id,
+        "user_email": user.email,
         "timeline": [
             {
                 "event_id": e.id,
                 "action": e.action,
+                "action_type": e.action,
                 "timestamp": e.timestamp.isoformat() + "Z",
                 "ip_address": e.ip_address,
                 "country": e.country,
                 "user_agent": e.user_agent,
-                "trust_score_at_time": e.trust_score_at_time
+                "trust_score_at_time": e.trust_score_at_time,
+                "description": _describe_event(e.action, e.metadata_json),
+                "metadata": _parse_metadata(e.metadata_json),
             }
             for e in events
         ]
     }
+
+
+def _parse_metadata(metadata_json: Optional[str]) -> dict:
+    if not metadata_json:
+        return {}
+    try:
+        parsed = json.loads(metadata_json)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _describe_event(action: str, metadata_json: Optional[str]) -> str:
+    metadata = _parse_metadata(metadata_json)
+    if action == "register":
+        rules = metadata.get("triggered_rules") or []
+        return "Registration completed" + (f"; triggered {', '.join(rules)}" if rules else "")
+    if action == "login":
+        recommendation = metadata.get("recommendation")
+        return f"Login completed" + (f"; recommendation: {recommendation}" if recommendation else "")
+    if action == "otp_sent":
+        mode = metadata.get("delivery_mode")
+        return f"OTP dispatched" + (f" via {mode}" if mode else "")
+    if action == "otp_verified":
+        return "OTP verified successfully"
+    return action.replace("_", " ").title()
 
 @router.patch("/{user_id}/status")
 def update_user_status(user_id: str, req: StatusUpdateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

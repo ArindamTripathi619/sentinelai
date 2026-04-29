@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, AlertCircle, Clock, MapPin, Zap } from 'lucide-react';
+import { X, Loader, AlertCircle, Clock, MapPin, Zap, Shield, History, BadgeAlert } from 'lucide-react';
 import { api } from '../lib/api';
 
 export default function UserTimeline({ userId, userEmail, onClose }) {
@@ -13,7 +13,7 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
         setLoading(true);
         setError('');
         const response = await api.get(`/users/${userId}/timeline`);
-        setTimeline(response.data.events || []);
+        setTimeline(response.data.timeline || response.data.events || []);
       } catch (err) {
         setError(err?.response?.data?.detail || 'Failed to load timeline');
       } finally {
@@ -28,10 +28,15 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
 
   const getActionBadgeColor = (action) => {
     switch (action?.toLowerCase()) {
+      case 'register':
       case 'registration':
         return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
       case 'login':
         return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'otp_sent':
+      case 'otp verified':
+      case 'otp_verified':
+        return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30';
       case 'event_signup':
         return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
       case 'flagged':
@@ -56,6 +61,10 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
         {/* Header */}
         <div className="flex justify-between items-center border-b border-gray-700 p-6">
           <div>
+            <div className="flex items-center gap-2 text-gray-400 mb-2">
+              <History className="w-4 h-4" />
+              <span className="text-xs uppercase tracking-[0.2em]">Forensic Replay</span>
+            </div>
             <h2 className="text-xl font-bold text-white">Activity Timeline</h2>
             <p className="text-sm text-gray-400 mt-1">{userEmail}</p>
           </div>
@@ -95,14 +104,19 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
                       <div className="flex items-center gap-2 mb-2">
                         <span
                           className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded border ${getActionBadgeColor(
-                            event.action_type
+                            event.action_type || event.action
                           )}`}
                         >
-                          {event.action_type?.replace('_', ' ') || 'Unknown'}
+                          {formatActionLabel(event.action_type || event.action)}
                         </span>
-                        {event.trust_score !== undefined && (
-                          <span className={`text-xs font-bold ${getTrustScoreColor(event.trust_score)}`}>
-                            Trust: {event.trust_score}
+                        {(event.trust_score !== undefined || event.trust_score_at_time !== undefined) && (
+                          <span className={`text-xs font-bold ${getTrustScoreColor(event.trust_score ?? event.trust_score_at_time)}`}>
+                            Trust: {event.trust_score ?? event.trust_score_at_time}
+                          </span>
+                        )}
+                        {event.country && (
+                          <span className="text-xs font-medium px-2 py-1 rounded border border-gray-600 text-gray-300">
+                            {event.country}
                           </span>
                         )}
                       </div>
@@ -130,6 +144,17 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
                             </span>
                           </div>
                         )}
+                        {event.metadata && Object.keys(event.metadata).length > 0 && (
+                          <div className="md:col-span-2 bg-gray-900/70 border border-gray-700 rounded-md p-3 text-gray-300">
+                            <div className="flex items-center gap-2 mb-2 text-gray-400">
+                              <BadgeAlert className="w-4 h-4" />
+                              <span className="text-[11px] uppercase tracking-wider">Metadata</span>
+                            </div>
+                            <pre className="whitespace-pre-wrap break-words text-[11px] leading-5 text-gray-400">
+                              {JSON.stringify(event.metadata, null, 2)}
+                            </pre>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -141,4 +166,14 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
       </div>
     </div>
   );
+}
+
+function formatActionLabel(action) {
+  if (!action) {
+    return 'Unknown';
+  }
+
+  return action
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
