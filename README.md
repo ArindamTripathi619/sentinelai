@@ -47,30 +47,28 @@ Every user gets a **Trust Score (0–100)** that updates in real time based on:
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  USER LAYER                         │
-│   Registration → Login → Event Actions              │
-│   [Behavioral JS SDK captures signals silently]     │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│              SENTINELAI CORE (FastAPI Backend)       │
-│                                                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │ Behavioral  │  │  Rules Engine│  │  ML Scorer │ │
-│  │ Collector   │→ │  (Fast Rules)│→ │(Trust 0-100│ │
-│  └─────────────┘  └──────────────┘  └────────────┘ │
-│                                           │         │
-│  ┌────────────────────────────────────────▼───────┐ │
-│  │           SQLite Event Log Store               │ │
-│  └────────────────────────────────────────────────┘ │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│           ADMIN DASHBOARD (React + Vite)            │
-│  Live Threat Feed · Trust Map · User Forensics      │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    A["👤 USER LAYER<br/>Registration → Login → Event Actions<br/><i>(Behavioral JS SDK captures signals)</i>"]
+    
+    B["🧠 SENTINELAI CORE<br/>FastAPI Backend"]
+    
+    C["📊 Behavioral Collector"]
+    D["⚡ Rules Engine<br/>Fast Rules"]
+    E["🤖 ML Scorer<br/>Trust Score 0-100"]
+    F["💾 SQLite Event Log Store"]
+    
+    G["📈 ADMIN DASHBOARD<br/>React + Vite<br/>Live Threat Feed · Trust Map · User Forensics"]
+    
+    A -->|Sends Events| B
+    B --> C
+    C -->|Processes| D
+    D -->|Calculates| E
+    C -->|Logs| F
+    D -->|Logs| F
+    E -->|Logs| F
+    E -->|Trust Insights| G
+    F -->|Historical Data| G
 ```
 
 ---
