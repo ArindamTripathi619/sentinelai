@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [velocityData, setVelocityData] = useState([]);
   const [trustScoreData, setTrustScoreData] = useState([]);
   const [users, setUsers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [liveAlerts, setLiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -126,6 +127,16 @@ export default function Dashboard() {
     clearUserSession();
     navigate('/login', { replace: true });
   };
+
+  const filteredUsers = users.filter((user) => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      (user.email || '').toLowerCase().includes(query) ||
+      (user.last_ip || '').toLowerCase().includes(query) ||
+      (user.status || '').toLowerCase().includes(query)
+    );
+  });
 
   const trustScoreCards = trustScoreData.length > 0 ? trustScoreData : [];
 
@@ -262,6 +273,8 @@ export default function Dashboard() {
                 type="text"
                 className="bg-gray-900 border border-gray-700 text-sm rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:border-blue-500 transition-colors"
                 placeholder="Search users or IPs..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
           </div>
@@ -278,7 +291,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <tr key={user.user_id} className="hover:bg-gray-800/80 transition-colors group">
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-200">{user.email}</div>
@@ -319,6 +332,13 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ))}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">
+                      No users match your search.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

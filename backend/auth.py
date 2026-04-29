@@ -79,6 +79,29 @@ def _create_alerts(db: Session, user_id: str, email: str, triggered_rules: list[
         )
 
 
+def _extract_ip(request: Request, payload: dict) -> str:
+    """
+    Resolve the client IP with proxy/header support for local demo scripts.
+    Priority: X-Forwarded-For header -> request payload -> socket client host.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        forwarded_ip = xff.split(",")[0].strip()
+        if forwarded_ip:
+            return forwarded_ip
+
+    payload_ip = payload.get("ip_address")
+    if payload_ip:
+        return str(payload_ip)
+
+    return request.client.host if request.client else "127.0.0.1"
+
+
+def _extract_user_agent(request: Request, payload: dict) -> str:
+    """Prefer real HTTP User-Agent header, then payload fallback for scripted tests."""
+    return request.headers.get("user-agent") or payload.get("user_agent") or "unknown"
+
+
 def create_access_token(user_id: str, expires_delta: timedelta = None) -> str:
     """Create a JWT access token for the user."""
     if expires_delta is None:
@@ -132,16 +155,16 @@ async def register(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="User already exists")
     
     # Parse behavioral payload
-    beh_data = data.get("behavioralData", {})
+    beh_data = data.get("behavioralData") or data.get("behavioral") or {}
     behavioral = BehavioralPayload(
         typing_variance_ms=beh_data.get("typing_variance_ms", 150),
         time_to_complete_sec=beh_data.get("time_to_complete_sec", 10),
         mouse_move_count=beh_data.get("mouse_move_count", 20),
         keypress_count=beh_data.get("keypress_count", 20)
     )
-    
-    ip_address = request.client.host if request.client else "127.0.0.1"
-    user_agent = request.headers.get("user-agent", "unknown")
+
+    ip_address = _extract_ip(request, data)
+    user_agent = _extract_user_agent(request, data)
     
     hour_ago = datetime.utcnow() - timedelta(hours=1)
     reg_count, same_ua_count = _get_registration_counts(
@@ -183,7 +206,14 @@ async def register(request: Request, db: Session = Depends(get_db)):
         country=get_country(ip_address),
         user_agent=user_agent,
         trust_score_at_time=score_result.trust_score,
-        metadata_json=json.dumps({"triggered_rules": score_result.triggered_rules}),
+        metadata_json=json.dumps({
+            "triggered_rules": score_result.triggered_rules,
+            "rule_penalty": score_result.rule_penalty,
+            "behavioral_penalty": score_result.behavioral_penalty,
+            "ml_penalty": score_result.ml_penalty,
+            "ml_anomaly_score": score_result.ml_anomaly_score,
+            "recommendation": score_result.recommendation,
+        }),
     )
     db.add(event)
     
@@ -192,7 +222,16 @@ async def register(request: Request, db: Session = Depends(get_db)):
         
     db.commit()
     
-    return {"message": "Registration successful", "trust_score": score_result.trust_score, "status": new_user.status}
+    return {
+        "message": "Registration successful",
+        "trust_score": score_result.trust_score,
+        "status": new_user.status,
+        "triggered_rules": score_result.triggered_rules,
+        "rule_penalty": score_result.rule_penalty,
+        "behavioral_penalty": score_result.behavioral_penalty,
+        "ml_penalty": score_result.ml_penalty,
+        "recommendation": score_result.recommendation,
+    }
 
 
 @router.post("/login")
@@ -202,7 +241,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
     password = data.get("password")
     
     user = db.query(User).filter(User.email == email, User.password_hash == hash_password(password)).first()
-    ip_address = request.client.host if request.client else "127.0.0.1"
+    ip_address = _extract_ip(request, data)
+    user_agent = _extract_user_agent(request, data)
     
     if not user:
         # log failed login maybe
@@ -242,10 +282,14 @@ async def login(request: Request, db: Session = Depends(get_db)):
         action="login",
         ip_address=ip_address,
         country=current_country,
-        user_agent=request.headers.get("user-agent", "unknown"),
+        user_agent=user_agent,
         trust_score_at_time=score_result.trust_score,
         metadata_json=json.dumps({
             "triggered_rules": score_result.triggered_rules,
+            "rule_penalty": score_result.rule_penalty,
+            "behavioral_penalty": score_result.behavioral_penalty,
+            "ml_penalty": score_result.ml_penalty,
+            "ml_anomaly_score": score_result.ml_anomaly_score,
             "recommendation": score_result.recommendation,
         }),
     )
