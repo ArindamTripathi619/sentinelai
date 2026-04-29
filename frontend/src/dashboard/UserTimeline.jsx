@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader, AlertCircle, Clock, MapPin, Zap, Shield, History, BadgeAlert } from 'lucide-react';
+import { X, Loader, AlertCircle, Clock, MapPin, Zap, Shield, History, BadgeAlert, ArrowLeft } from 'lucide-react';
 import { api } from '../lib/api';
 
-export default function UserTimeline({ userId, userEmail, onClose }) {
+export default function UserTimeline({ userId, userEmail, onClose, mode = 'modal' }) {
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [resolvedUserEmail, setResolvedUserEmail] = useState(userEmail || '');
 
   useEffect(() => {
     const fetchTimeline = async () => {
@@ -13,6 +14,7 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
         setLoading(true);
         setError('');
         const response = await api.get(`/users/${userId}/timeline`);
+        setResolvedUserEmail(response.data.user_email || userEmail || '');
         setTimeline(response.data.timeline || response.data.events || []);
       } catch (err) {
         setError(err?.response?.data?.detail || 'Failed to load timeline');
@@ -55,9 +57,18 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
     return 'text-green-400';
   };
 
+  const isPageMode = mode === 'page';
+  const Container = isPageMode ? 'div' : 'div';
+  const containerClassName = isPageMode
+    ? 'min-h-screen bg-gray-900 text-white p-6'
+    : 'fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4';
+  const panelClassName = isPageMode
+    ? 'mx-auto w-full max-w-6xl bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden'
+    : 'bg-gray-900 border border-gray-700 rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col';
+
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className={containerClassName}>
+      <div className={panelClassName}>
         {/* Header */}
         <div className="flex justify-between items-center border-b border-gray-700 p-6">
           <div>
@@ -66,18 +77,18 @@ export default function UserTimeline({ userId, userEmail, onClose }) {
               <span className="text-xs uppercase tracking-[0.2em]">Forensic Replay</span>
             </div>
             <h2 className="text-xl font-bold text-white">Activity Timeline</h2>
-            <p className="text-sm text-gray-400 mt-1">{userEmail}</p>
+            <p className="text-sm text-gray-400 mt-1">{resolvedUserEmail || userEmail || 'Unknown user'}</p>
           </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors"
           >
-            <X className="w-6 h-6" />
+            {isPageMode ? <ArrowLeft className="w-6 h-6" /> : <X className="w-6 h-6" />}
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className={isPageMode ? 'p-6' : 'flex-1 overflow-y-auto p-6'}>
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader className="w-8 h-8 text-blue-400 animate-spin" />
