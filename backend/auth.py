@@ -3,8 +3,11 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Event, Alert, OtpSession
 from scorer import score_registration, score_login, BehavioralPayload
+from geo import get_country
+from mailer import send_otp_email
 import hashlib
 import secrets
+import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -32,6 +35,48 @@ class TokenResponse(BaseModel):
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _get_registration_counts(db: Session, *, ip_address: str, user_agent: str, since: datetime) -> tuple[int, int]:
+    registrations_from_ip = (
+        db.query(Event)
+        .filter(
+            Event.action == "register",
+            Event.ip_address == ip_address,
+            Event.timestamp >= since,
+        )
+        .count()
+    )
+    same_ua_count = (
+        db.query(Event)
+        .filter(
+            Event.action == "register",
+            Event.user_agent == user_agent,
+            Event.timestamp >= since,
+        )
+        .count()
+    )
+    return registrations_from_ip, same_ua_count
+
+
+def _create_alerts(db: Session, user_id: str, email: str, triggered_rules: list[str]) -> None:
+    severity_map = {
+        "geo_drift": "high",
+        "velocity_ip": "high",
+        "speed_bot": "high",
+        "duplicate_device": "medium",
+        "email_pattern": "medium",
+        "velocity_spike": "high",
+    }
+    for rule in triggered_rules:
+        db.add(
+            Alert(
+                type=rule,
+                severity=severity_map.get(rule, "medium"),
+                description=f"Rule triggered: {rule} for {email}",
+                affected_user_ids=user_id,
+            )
+        )
 
 
 def create_access_token(user_id: str, expires_delta: timedelta = None) -> str:
@@ -98,8 +143,13 @@ async def register(request: Request, db: Session = Depends(get_db)):
     ip_address = request.client.host if request.client else "127.0.0.1"
     user_agent = request.headers.get("user-agent", "unknown")
     
-    # Simple count for velocity check
-    reg_count = db.query(User).filter(User.last_ip == ip_address).count()
+    hour_ago = datetime.utcnow() - timedelta(hours=1)
+    reg_count, same_ua_count = _get_registration_counts(
+        db,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        since=hour_ago,
+    )
     
     score_result = score_registration(
         email=email,
@@ -107,7 +157,7 @@ async def register(request: Request, db: Session = Depends(get_db)):
         ip_address=ip_address,
         user_agent=user_agent,
         registrations_from_ip_last_hour=reg_count,
-        accounts_with_same_ua_today=reg_count
+        accounts_with_same_ua_today=same_ua_count,
     )
     
     new_user = User(
@@ -126,13 +176,19 @@ async def register(request: Request, db: Session = Depends(get_db)):
     db.refresh(new_user)
     
     # Log event
-    event = Event(user_id=new_user.id, action="register", ip_address=ip_address, user_agent=user_agent, trust_score_at_time=score_result.trust_score)
+    event = Event(
+        user_id=new_user.id,
+        action="register",
+        ip_address=ip_address,
+        country=get_country(ip_address),
+        user_agent=user_agent,
+        trust_score_at_time=score_result.trust_score,
+        metadata_json=json.dumps({"triggered_rules": score_result.triggered_rules}),
+    )
     db.add(event)
     
     # Create alerts if triggered
-    for rule in score_result.triggered_rules:
-        alert = Alert(type=rule, severity="medium" if score_result.trust_score > 40 else "high", description=f"Rule triggered: {rule} during registration of {email}", affected_user_ids=new_user.id)
-        db.add(alert)
+    _create_alerts(db, new_user.id, email, score_result.triggered_rules)
         
     db.commit()
     
@@ -152,22 +208,49 @@ async def login(request: Request, db: Session = Depends(get_db)):
         # log failed login maybe
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
+    current_country = get_country(ip_address)
+    previous_login_event = (
+        db.query(Event)
+        .filter(Event.user_id == user.id, Event.action == "login")
+        .order_by(Event.timestamp.desc())
+        .first()
+    )
+    last_country = previous_login_event.country if previous_login_event else None
+    minutes_since_last_login = None
+    if previous_login_event and previous_login_event.timestamp:
+        minutes_since_last_login = (
+            (datetime.utcnow() - previous_login_event.timestamp).total_seconds() / 60.0
+        )
+
     score_result = score_login(
         user_id=user.id,
         existing_trust_score=user.trust_score,
         ip_address=ip_address,
-        current_country="IN", # Mock
-        last_country="IN", # Mock
-        minutes_since_last_login=100
+        current_country=current_country,
+        last_country=last_country,
+        minutes_since_last_login=minutes_since_last_login,
     )
     
     user.trust_score = score_result.trust_score
+    user.status = "blocked" if score_result.trust_score < 20 else "quarantined" if score_result.trust_score < 40 else "active"
     user.last_login_at = datetime.utcnow()
     db.commit()
     
     # Log event
-    event = Event(user_id=user.id, action="login", ip_address=ip_address, trust_score_at_time=score_result.trust_score)
+    event = Event(
+        user_id=user.id,
+        action="login",
+        ip_address=ip_address,
+        country=current_country,
+        user_agent=request.headers.get("user-agent", "unknown"),
+        trust_score_at_time=score_result.trust_score,
+        metadata_json=json.dumps({
+            "triggered_rules": score_result.triggered_rules,
+            "recommendation": score_result.recommendation,
+        }),
+    )
     db.add(event)
+    _create_alerts(db, user.id, email, score_result.triggered_rules)
     db.commit()
     
     # Generate JWT token
@@ -221,12 +304,32 @@ async def send_otp(request: Request, db: Session = Depends(get_db)):
     
     if not otp_session:
         raise HTTPException(status_code=400, detail="Invalid OTP session")
+
+    user = db.query(User).filter(User.id == otp_session.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    if user.email != email:
+        raise HTTPException(status_code=400, detail="Email does not match OTP session")
     
-    # TODO: Implement actual email sending via Gmail SMTP
-    # For now, just print to logs
-    print(f"OTP for {email}: {otp_session.otp_code}")
+    delivery_mode = send_otp_email(email, otp_session.otp_code)
+
+    event = Event(
+        user_id=user.id,
+        action="otp_sent",
+        ip_address=request.client.host if request.client else "127.0.0.1",
+        user_agent=request.headers.get("user-agent", "unknown"),
+        metadata_json=json.dumps({"otp_session_id": otp_session.id, "delivery_mode": delivery_mode}),
+    )
+    db.add(event)
+    db.commit()
     
-    return {"message": "OTP sent successfully", "expires_in_seconds": 300}
+    expires_in_seconds = max(0, int((otp_session.expires_at - datetime.utcnow()).total_seconds()))
+    return {
+        "message": "OTP sent successfully",
+        "expires_in_seconds": expires_in_seconds,
+        "delivery_mode": delivery_mode,
+    }
 
 
 @router.post("/otp/verify")
@@ -263,6 +366,17 @@ async def verify_otp(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="User not found")
     
     access_token = create_access_token(user.id)
+
+    event = Event(
+        user_id=user.id,
+        action="otp_verified",
+        ip_address=request.client.host if request.client else "127.0.0.1",
+        user_agent=request.headers.get("user-agent", "unknown"),
+        trust_score_at_time=user.trust_score,
+        metadata_json=json.dumps({"otp_session_id": otp_session.id}),
+    )
+    db.add(event)
+    db.commit()
     
     return {
         "token": access_token,

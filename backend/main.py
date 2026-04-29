@@ -6,6 +6,7 @@ import auth
 import users
 import alerts
 import analytics
+import scoring
 from database import init_db
 
 load_dotenv()
@@ -39,6 +40,7 @@ app.include_router(auth.router, prefix="/api", tags=["Auth & Core"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["Alerts"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(scoring.router, prefix="/api/score", tags=["Scoring"])
 
 @app.get("/")
 def root():
