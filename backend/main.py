@@ -36,13 +36,13 @@ from auth import router as auth_router
 from users import router as users_router
 from alerts import router as alerts_router
 from analytics import router as analytics_router
-# from scoring import router as scoring_router
+from scoring import router as scoring_router
 
 app.include_router(auth_router, prefix="/api", tags=["Auth"])
 app.include_router(users_router, prefix="/api/users", tags=["Users"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["Alerts"])
 app.include_router(analytics_router, prefix="/api/analytics", tags=["Analytics"])
-# app.include_router(scoring_router, prefix="/api", tags=["Scoring"])
+app.include_router(scoring_router, prefix="/api/score", tags=["Scoring"])
 
 
 @app.get("/")
@@ -63,7 +63,4 @@ def health():
 
 
 
-@app.post("/api/score")
-async def score_stub():
-    # TODO: Akash implements the scoring pipeline here
-    return {"trust_score": 100, "triggered_rules": [], "recommendation": "allow"}
+
