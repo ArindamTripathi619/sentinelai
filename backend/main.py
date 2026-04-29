@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import auth
+import users
+import alerts
+import analytics
 from database import init_db
 
 load_dotenv()
@@ -33,6 +36,9 @@ app.add_middleware(
 
 # --- Route Imports ---
 app.include_router(auth.router, prefix="/api", tags=["Auth & Core"])
+app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(alerts.router, prefix="/api/alerts", tags=["Alerts"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 @app.get("/")
 def root():
