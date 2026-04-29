@@ -2,26 +2,78 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useBehavioral } from '../sdk/behavioral';
 import { Shield, Lock, Mail, ArrowRight } from 'lucide-react';
+import { api, setUserSession } from '../lib/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otpSessionId, setOtpSessionId] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [requiresOtp, setRequiresOtp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const navigate = useNavigate();
   const getBehavioralPayload = useBehavioral();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
+    setInfo('');
     
     const behavioralData = getBehavioralPayload();
-    console.log('Login Payload:', { email, password, behavioralData });
-    
-    // Simulate API call
-    setTimeout(() => {
+
+    try {
+      const response = await api.post('/login', {
+        email,
+        password,
+        behavioralData,
+        ip_address: '127.0.0.1',
+        user_agent: navigator.userAgent,
+        country: 'US',
+      });
+
+      if (response.data.otp_required) {
+        setRequiresOtp(true);
+        setOtpSessionId(response.data.otp_session_id);
+        setInfo('OTP is required. We sent a code to your account session.');
+
+        if (response.data.otp_session_id) {
+          await api.post('/otp/send', {
+            otp_session_id: response.data.otp_session_id,
+            email,
+          });
+        }
+      } else if (response.data.token) {
+        setUserSession({ token: response.data.token, userId: response.data.user_id });
+        navigate('/dashboard', { replace: true });
+      }
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Login failed');
+    } finally {
       setIsLoading(false);
-      navigate('/dashboard');
-    }, 800);
+    }
+  };
+
+  const handleOtpVerify = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await api.post('/otp/verify', {
+        otp_session_id: otpSessionId,
+        otp_code: otpCode,
+      });
+
+      setUserSession({ token: response.data.token, userId: response.data.user_id });
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'OTP verification failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -43,7 +95,20 @@ export default function Login() {
           </p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
+        {info && (
+          <div className="mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200">
+            {info}
+          </div>
+        )}
+
+        {!requiresOtp ? (
+          <form onSubmit={handleLogin} className="space-y-6">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-300">Email Address</label>
             <div className="relative">
@@ -92,7 +157,39 @@ export default function Login() {
               </>
             )}
           </button>
-        </form>
+          </form>
+        ) : (
+          <form onSubmit={handleOtpVerify} className="space-y-6">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-300">OTP Code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                required
+                className="w-full bg-gray-900/50 border border-gray-700 text-white rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all tracking-[0.3em] text-center"
+                placeholder="123456"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold rounded-lg py-2.5 px-4 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <span>Verify OTP</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        )}
 
         <div className="mt-6 text-center text-sm text-gray-400">
           New to SentinelAI?{' '}

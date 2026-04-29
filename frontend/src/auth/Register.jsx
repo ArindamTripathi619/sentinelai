@@ -2,27 +2,42 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useBehavioral } from '../sdk/behavioral';
 import { ShieldAlert, User, Mail, Lock, ArrowRight } from 'lucide-react';
+import { api } from '../lib/api';
 
 export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const navigate = useNavigate();
   const getBehavioralPayload = useBehavioral();
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
+    setSuccess('');
     
     const behavioralData = getBehavioralPayload();
-    console.log('Registration Payload:', { name, email, password, behavioralData });
-    
-    // Simulate API call
-    setTimeout(() => {
+
+    try {
+      const response = await api.post('/register', {
+        email,
+        password,
+        behavioralData,
+      });
+
+      setSuccess(`Registration successful. Trust score: ${response.data.trust_score}.`);
+      setTimeout(() => {
+        navigate('/login', { replace: true });
+      }, 1200);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Registration failed');
+    } finally {
       setIsLoading(false);
-      navigate('/dashboard');
-    }, 1000);
+    }
   };
 
   return (
@@ -43,6 +58,18 @@ export default function Register() {
             Behavioral analysis will run during signup
           </p>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            {success}
+          </div>
+        )}
 
         <form onSubmit={handleRegister} className="space-y-5">
           <div className="space-y-1">

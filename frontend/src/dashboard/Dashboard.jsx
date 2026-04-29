@@ -4,26 +4,10 @@ import {
 } from 'recharts';
 import { 
   ShieldAlert, Users, Activity, Lock, AlertTriangle, 
-  ChevronRight, Search, Server, Shield
+  ChevronRight, Search, Server, Shield, LogOut
 } from 'lucide-react';
-
-// Mock Data
-const velocityData = [
-  { time: '10:00', signups: 12 },
-  { time: '10:05', signups: 15 },
-  { time: '10:10', signups: 18 },
-  { time: '10:15', signups: 85 }, // Bot wave spike
-  { time: '10:20', signups: 14 },
-  { time: '10:25', signups: 11 },
-  { time: '10:30', signups: 16 },
-];
-
-const trustScoreData = [
-  { range: '0-20', count: 45, label: 'Blocked' },
-  { range: '21-40', count: 80, label: 'Quarantine' },
-  { range: '41-70', count: 250, label: 'Suspicious' },
-  { range: '71-100', count: 1800, label: 'Safe' },
-];
+import { useNavigate } from 'react-router-dom';
+import { api, clearUserSession } from '../lib/api';
 
 const COLORS = {
   Blocked: '#ef4444',     // Red
@@ -32,34 +16,107 @@ const COLORS = {
   Safe: '#22c55e',        // Green
 };
 
-const mockAlerts = [
-  { id: 1, type: 'Bot Wave', desc: '14 signups in 60s detected', severity: 'high', time: '2m ago' },
-  { id: 2, type: 'Geo Drift', desc: 'user22@test.com: IN → DE', severity: 'medium', time: '15m ago' },
-  { id: 3, type: 'Velocity', desc: 'IP 192.168.1.1 registered 5 accs', severity: 'high', time: '42m ago' },
-  { id: 4, type: 'Behavioral', desc: 'Low mouse entropy score (0.04)', severity: 'low', time: '1h ago' },
-];
-
-const mockUsers = [
-  { id: 'usr_001', email: 'john@example.com', ip: '203.0.113.1', score: 92, status: 'Safe', date: '2023-10-25 10:45' },
-  { id: 'usr_002', email: 'bot_runner77@temp.com', ip: '45.22.11.9', score: 12, status: 'Blocked', date: '2023-10-25 10:15' },
-  { id: 'usr_003', email: 'sarah.m@gmail.com', ip: '198.51.100.2', score: 68, status: 'Suspicious', date: '2023-10-25 09:22' },
-  { id: 'usr_004', email: 'admin_test@corp.net', ip: '192.0.2.4', score: 35, status: 'Quarantine', date: '2023-10-25 08:11' },
-];
+const BAND_COLORS = {
+  green: '#22c55e',
+  yellow: '#eab308',
+  orange: '#f97316',
+  red: '#ef4444',
+  darkred: '#7f1d1d',
+};
 
 export default function Dashboard() {
-  const [alerts, setAlerts] = useState(mockAlerts);
-  
-  // Simulate live threat feed polling
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState(null);
+  const [velocityData, setVelocityData] = useState([]);
+  const [trustScoreData, setTrustScoreData] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const alerts = summary
+    ? [
+        {
+          id: 'summary-1',
+          type: 'Bot Waves',
+          desc: `${summary.bot_waves_detected} bot wave(s) detected`,
+          severity: summary.bot_waves_detected > 0 ? 'high' : 'low',
+          time: 'Live',
+        },
+        {
+          id: 'summary-2',
+          type: 'Trust',
+          desc: `${summary.quarantined} quarantined users, ${summary.blocked} blocked users`,
+          severity: summary.blocked > 0 ? 'high' : 'medium',
+          time: 'Live',
+        },
+      ]
+    : [];
+
+  const kpis = summary
+    ? [
+        { title: 'Total Users', value: summary.total_users, icon: Users, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+        { title: 'Flagged Today', value: summary.flagged_today, icon: AlertTriangle, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+        { title: 'Bot Waves Detected', value: summary.bot_waves_detected, icon: Activity, color: 'text-red-400', bg: 'bg-red-400/10' },
+        { title: 'Quarantined', value: summary.quarantined, icon: Lock, color: 'text-orange-400', bg: 'bg-orange-400/10' },
+      ]
+    : [];
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Just a mock rotation to look "alive"
-      setAlerts(prev => {
-        const newAlert = { ...prev[3], id: Date.now(), time: 'Just now' };
-        return [newAlert, ...prev.slice(0, 3)];
-      });
-    }, 8000);
-    return () => clearInterval(interval);
+    let mounted = true;
+
+    const loadDashboard = async () => {
+      try {
+        setError('');
+        const [summaryRes, velocityRes, trustRes, usersRes] = await Promise.all([
+          api.get('/analytics/summary'),
+          api.get('/analytics/velocity?window=1h&bucket=1min'),
+          api.get('/analytics/trust-distribution'),
+          api.get('/users?limit=8&offset=0'),
+        ]);
+
+        if (!mounted) return;
+
+        setSummary(summaryRes.data);
+        setVelocityData((velocityRes.data.data || []).map((point, index) => ({
+          time: point.timestamp ? new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : `T${index + 1}`,
+          signups: point.registrations ?? 0,
+        })));
+
+        setTrustScoreData((trustRes.data.bands || []).map((band) => ({
+          range: band.label,
+          count: band.count,
+          label: band.label,
+          color: BAND_COLORS[band.color] || '#64748b',
+        })));
+
+        setUsers(usersRes.data.users || []);
+      } catch (err) {
+        if (!mounted) return;
+        if (err?.response?.status === 401) {
+          clearUserSession();
+          navigate('/login', { replace: true });
+          return;
+        }
+        setError(err?.response?.data?.detail || 'Failed to load dashboard');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadDashboard();
+    const interval = setInterval(loadDashboard, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
+
+  const handleLogout = () => {
+    clearUserSession();
+    navigate('/login', { replace: true });
+  };
+
+  const trustScoreCards = trustScoreData.length > 0 ? trustScoreData : [];
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6 font-sans">
@@ -79,15 +136,27 @@ export default function Dashboard() {
             <Server className="w-4 h-4" />
             <span>System Active</span>
           </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center space-x-2 text-gray-300 hover:text-white bg-gray-800/80 border border-gray-700 px-3 py-1.5 rounded-full transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Logout</span>
+          </button>
         </div>
       </header>
 
+      {error && (
+        <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {error}
+        </div>
+      )}
+
       {/* KPI Row (Panel 5) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <KPICard title="Total Users" value="2,175" icon={Users} color="text-blue-400" bg="bg-blue-400/10" />
-        <KPICard title="Flagged Today" value="125" icon={AlertTriangle} color="text-yellow-400" bg="bg-yellow-400/10" trend="+14%" />
-        <KPICard title="Bot Waves Detected" value="3" icon={Activity} color="text-red-400" bg="bg-red-400/10" />
-        <KPICard title="Quarantined" value="80" icon={Lock} color="text-orange-400" bg="bg-orange-400/10" />
+        {kpis.map((card) => (
+          <KPICard key={card.title} title={card.title} value={loading ? '...' : card.value} icon={card.icon} color={card.color} bg={card.bg} />
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
@@ -152,7 +221,7 @@ export default function Dashboard() {
           <h2 className="text-lg font-semibold mb-6">Trust Score Distribution</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={trustScoreData} layout="vertical" margin={{ top: 0, right: 30, left: 20, bottom: 0 }}>
+              <BarChart data={trustScoreCards} layout="vertical" margin={{ top: 0, right: 30, left: 20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
                 <XAxis type="number" stroke="#9ca3af" axisLine={false} tickLine={false} />
                 <YAxis dataKey="range" type="category" stroke="#9ca3af" axisLine={false} tickLine={false} />
@@ -161,8 +230,8 @@ export default function Dashboard() {
                   contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem' }}
                 />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                  {trustScoreData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[entry.label]} />
+                  {trustScoreCards.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color || COLORS.Blocked} />
                   ))}
                 </Bar>
               </BarChart>
@@ -198,33 +267,32 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {mockUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-800/80 transition-colors group">
+                {users.map((user) => (
+                  <tr key={user.user_id} className="hover:bg-gray-800/80 transition-colors group">
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-200">{user.email}</div>
-                      <div className="text-xs text-gray-500">{user.date}</div>
+                      <div className="text-xs text-gray-500">{user.registered_at}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{user.ip}</td>
+                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{user.last_ip || 'n/a'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-2">
                         <div className="w-full bg-gray-700 rounded-full h-1.5 max-w-[4rem]">
                           <div 
                             className={`h-1.5 rounded-full ${
-                              user.score < 20 ? 'bg-red-500' :
-                              user.score < 40 ? 'bg-orange-500' :
-                              user.score < 70 ? 'bg-yellow-500' : 'bg-green-500'
+                              user.trust_score < 20 ? 'bg-red-500' :
+                              user.trust_score < 40 ? 'bg-orange-500' :
+                              user.trust_score < 70 ? 'bg-yellow-500' : 'bg-green-500'
                             }`} 
-                            style={{ width: `${user.score}%` }}
+                            style={{ width: `${user.trust_score}%` }}
                           ></div>
                         </div>
-                        <span className="text-xs font-bold text-gray-300">{user.score}</span>
+                        <span className="text-xs font-bold text-gray-300">{user.trust_score}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium px-2 py-1 rounded-md border ${
-                        user.status === 'Blocked' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                        user.status === 'Quarantine' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                        user.status === 'Suspicious' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' :
+                        user.status === 'blocked' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                        user.status === 'quarantined' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
                         'bg-green-500/10 text-green-400 border-green-500/20'
                       }`}>
                         {user.status}
