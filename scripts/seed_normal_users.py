@@ -16,7 +16,14 @@ import requests
 import random
 import time
 import string
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+from database import SessionLocal
+from models import User, Event
 
 API_BASE = "http://localhost:9000/api"
 
@@ -90,6 +97,31 @@ def register_user(email, password, behavioral, ip):
         return 0, {"error": str(e)}
 
 
+def backfill_registered_at(email, registered_at):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return
+
+        user.registered_at = registered_at
+        event = (
+            db.query(Event)
+            .filter(Event.user_id == user.id, Event.action == "register")
+            .order_by(Event.timestamp.desc())
+            .first()
+        )
+        if event:
+            event.timestamp = registered_at
+        db.commit()
+    finally:
+        db.close()
+
+
+def utc_now_naive():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def main():
     print("=" * 55)
     print("  SentinelAI - Seeding Normal Users")
@@ -98,6 +130,7 @@ def main():
 
     success = 0
     failed = 0
+    base_time = utc_now_naive() - timedelta(hours=2)
 
     for i in range(50):
         first = random.choice(FIRST_NAMES)
@@ -112,6 +145,9 @@ def main():
         if status in (200, 201):
             trust = resp.get("trust_score", "?")
             print(f"  [OK] [{i+1:02d}/50] {email} - Trust: {trust}")
+            offset_minutes = int((i / max(1, 49)) * 120)
+            seeded_at = base_time + timedelta(minutes=offset_minutes)
+            backfill_registered_at(email, seeded_at)
             success += 1
         else:
             print(f"  [FAIL] [{i+1:02d}/50] {email} - Failed: {resp}")

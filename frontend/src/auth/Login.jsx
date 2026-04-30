@@ -9,7 +9,11 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [otpSessionId, setOtpSessionId] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaPrompt, setCaptchaPrompt] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [requiresOtp, setRequiresOtp] = useState(false);
+  const [requiresCaptcha, setRequiresCaptcha] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -45,6 +49,11 @@ export default function Login() {
             email,
           });
         }
+      } else if (response.data.captcha_required) {
+        setRequiresCaptcha(true);
+        setCaptchaToken(response.data.captcha_token);
+        setCaptchaPrompt(response.data.captcha_prompt);
+        setInfo('Captcha verification is required.');
       } else if (response.data.token) {
         setUserSession({ token: response.data.token, userId: response.data.user_id });
         navigate('/dashboard', { replace: true });
@@ -71,6 +80,26 @@ export default function Login() {
       navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err?.response?.data?.detail || 'OTP verification failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCaptchaVerify = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await api.post('/captcha/verify', {
+        captcha_token: captchaToken,
+        captcha_answer: captchaAnswer,
+      });
+
+      setUserSession({ token: response.data.token, userId: response.data.user_id });
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Captcha verification failed');
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +136,7 @@ export default function Login() {
           </div>
         )}
 
-        {!requiresOtp ? (
+        {!requiresOtp && !requiresCaptcha ? (
           <form onSubmit={handleLogin} className="space-y-6">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-300">Email Address</label>
@@ -158,7 +187,7 @@ export default function Login() {
             )}
           </button>
           </form>
-        ) : (
+        ) : requiresOtp ? (
           <form onSubmit={handleOtpVerify} className="space-y-6">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-300">OTP Code</label>
@@ -184,6 +213,42 @@ export default function Login() {
               ) : (
                 <>
                   <span>Verify OTP</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleCaptchaVerify} className="space-y-6">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-300">Captcha Challenge</label>
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 px-4 py-3 text-center tracking-[0.4em] text-lg font-semibold text-blue-300">
+                {captchaPrompt || 'Loading...'}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-300">Enter the code above</label>
+              <input
+                type="text"
+                required
+                className="w-full bg-gray-900/50 border border-gray-700 text-white rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all tracking-[0.3em] text-center uppercase"
+                placeholder="ABC123"
+                value={captchaAnswer}
+                onChange={(e) => setCaptchaAnswer(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold rounded-lg py-2.5 px-4 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <span>Verify Captcha</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

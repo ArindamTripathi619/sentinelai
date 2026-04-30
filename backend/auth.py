@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from typing import Optional
+import base64
+import hmac
 
 load_dotenv()
 
@@ -31,6 +33,19 @@ class TokenResponse(BaseModel):
     token_type: str
     user_id: str
     trust_score: int
+
+
+class CaptchaVerifyRequest(BaseModel):
+    captcha_token: str
+    captcha_answer: str
+
+
+class CaptchaChallengeResponse(BaseModel):
+    captcha_required: bool
+    captcha_token: str
+    captcha_prompt: str
+    user_id: str
+    recommendation: str
 
 
 def hash_password(password: str) -> str:
@@ -82,6 +97,21 @@ def _create_alerts(db: Session, user_id: str, email: str, triggered_rules: list[
         )
 
 
+def _create_ml_alert(db: Session, user_id: str, email: str, ml_anomaly_score: Optional[float]) -> None:
+    if ml_anomaly_score is None or ml_anomaly_score > -0.5:
+        return
+
+    severity = "high" if ml_anomaly_score <= -0.8 else "medium"
+    db.add(
+        Alert(
+            type="ml_anomaly",
+            severity=severity,
+            description=f"ML anomaly detected for {email} (score: {ml_anomaly_score:.2f})",
+            affected_user_ids=user_id,
+        )
+    )
+
+
 def _extract_ip(request: Request, payload: dict) -> str:
     """
     Resolve the client IP with proxy/header support for local demo scripts.
@@ -114,6 +144,43 @@ def create_access_token(user_id: str, expires_delta: timedelta = None) -> str:
     to_encode = {"sub": user_id, "exp": expire}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def _create_captcha_challenge(user_id: str, prompt_length: int = 6) -> tuple[str, str]:
+    """Create a signed captcha challenge that can be verified without DB state."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    prompt = "".join(secrets.choice(alphabet) for _ in range(prompt_length))
+    issued_at = datetime.utcnow().timestamp()
+    payload = f"{user_id}:{prompt}:{issued_at:.0f}"
+    signature = hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    token = base64.urlsafe_b64encode(f"{payload}:{signature}".encode("utf-8")).decode("utf-8")
+    return token, prompt
+
+
+def _verify_captcha_challenge(captcha_token: str, captcha_answer: str, max_age_seconds: int = 300) -> str:
+    """Verify the signed captcha challenge and return the user_id if valid."""
+    try:
+        decoded = base64.urlsafe_b64decode(captcha_token.encode("utf-8")).decode("utf-8")
+        user_id, prompt, issued_at_raw, signature = decoded.rsplit(":", 3)
+        payload = f"{user_id}:{prompt}:{issued_at_raw}"
+        expected_signature = hmac.new(
+            SECRET_KEY.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected_signature):
+            raise ValueError("Invalid captcha signature")
+        if captcha_answer.strip().upper() != prompt.upper():
+            raise ValueError("Incorrect captcha answer")
+        if (datetime.utcnow().timestamp() - float(issued_at_raw)) > max_age_seconds:
+            raise ValueError("Captcha challenge expired")
+        return user_id
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)) -> User:
@@ -163,7 +230,10 @@ async def register(request: Request, db: Session = Depends(get_db)):
         typing_variance_ms=beh_data.get("typing_variance_ms", 150),
         time_to_complete_sec=beh_data.get("time_to_complete_sec", 10),
         mouse_move_count=beh_data.get("mouse_move_count", 20),
-        keypress_count=beh_data.get("keypress_count", 20)
+        keypress_count=beh_data.get("keypress_count", 20),
+        session_tempo_sec=beh_data.get("session_tempo_sec", 0.0),
+        mouse_entropy_score=beh_data.get("mouse_entropy_score", 0.0),
+        fill_order_score=beh_data.get("fill_order_score", 1.0),
     )
 
     ip_address = _extract_ip(request, data)
@@ -231,6 +301,7 @@ async def register(request: Request, db: Session = Depends(get_db)):
     
     # Create alerts if triggered
     _create_alerts(db, new_user.id, email, score_result.triggered_rules)
+    _create_ml_alert(db, new_user.id, email, score_result.ml_anomaly_score)
         
     db.commit()
     
@@ -307,15 +378,27 @@ async def login(request: Request, db: Session = Depends(get_db)):
     )
     db.add(event)
     _create_alerts(db, user.id, email, score_result.triggered_rules)
+    _create_ml_alert(db, user.id, email, score_result.ml_anomaly_score)
     db.commit()
     
     # Generate JWT token
     access_token = create_access_token(user.id)
     
     # Determine action based on recommendation (progressive auth policy)
-    # allow (>70): smooth login, otp (40-70): OTP challenge, captcha/quarantine (<40): block + alert
-    otp_required = score_result.recommendation in ["otp", "captcha"]
+    # allow (>70): smooth login, otp (40-70): OTP challenge, captcha (20-39): captcha challenge, quarantine (<20): block + alert
+    otp_required = score_result.recommendation == "otp"
+    captcha_required = score_result.recommendation == "captcha"
     is_blocked = score_result.recommendation == "quarantine"
+
+    if score_result.recommendation in ["captcha", "quarantine"]:
+        db.add(
+            Alert(
+                type="captcha_challenge" if captcha_required else "trust_quarantine",
+                severity="medium" if captcha_required else "high",
+                description=f"Low-trust login for {email}: {score_result.recommendation}",
+                affected_user_ids=user.id,
+            )
+        )
     
     if is_blocked:
         # Trust score too low — reject login and alert
@@ -349,6 +432,17 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "user_id": user.id,
             "recommendation": score_result.recommendation
         }
+    elif captcha_required:
+        captcha_token, captcha_prompt = _create_captcha_challenge(user.id)
+        return {
+            "token": None,
+            "trust_score": score_result.trust_score,
+            "captcha_required": True,
+            "captcha_token": captcha_token,
+            "captcha_prompt": captcha_prompt,
+            "user_id": user.id,
+            "recommendation": score_result.recommendation,
+        }
     else:
         # High-trust user — allow smooth login
         return {
@@ -359,6 +453,42 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "user_id": user.id,
             "recommendation": score_result.recommendation
         }
+
+
+@router.post("/captcha/verify")
+async def verify_captcha(request: Request, db: Session = Depends(get_db)):
+    """Verify a captcha challenge and issue a JWT token."""
+    data = await request.json()
+    captcha_token = data.get("captcha_token")
+    captcha_answer = data.get("captcha_answer")
+
+    if not captcha_token or not captcha_answer:
+        raise HTTPException(status_code=400, detail="Missing captcha_token or captcha_answer")
+
+    user_id = _verify_captcha_challenge(captcha_token, captcha_answer)
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    access_token = create_access_token(user.id)
+
+    event = Event(
+        user_id=user.id,
+        action="captcha_verified",
+        ip_address=request.client.host if request.client else "127.0.0.1",
+        user_agent=request.headers.get("user-agent", "unknown"),
+        trust_score_at_time=user.trust_score,
+        metadata_json=json.dumps({"captcha_verified": True}),
+    )
+    db.add(event)
+    db.commit()
+
+    return {
+        "token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "message": "Captcha verified successfully",
+    }
 
 
 @router.post("/otp/send")
