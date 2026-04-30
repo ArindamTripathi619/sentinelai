@@ -1,5 +1,5 @@
 """
-SentinelAI — Normal User Seeder
+SentinelAI -- Normal User Seeder
 Owner: Parthiv
 
 Registers 50 realistic users via the API to pre-populate the dashboard.
@@ -7,6 +7,10 @@ Run this BEFORE the demo to have a healthy baseline of users.
 
 Run: python seed_normal_users.py
 """
+
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 import requests
 import random
@@ -88,7 +92,7 @@ def register_user(email, password, behavioral, ip):
 
 def main():
     print("=" * 55)
-    print("  SentinelAI — Seeding Normal Users")
+    print("  SentinelAI - Seeding Normal Users")
     print(f"  Target: {API_BASE}")
     print("=" * 55)
 
@@ -105,15 +109,15 @@ def main():
 
         status, resp = register_user(email, password, behavioral, ip)
 
-        if status == 201:
+        if status in (200, 201):
             trust = resp.get("trust_score", "?")
-            print(f"  ✅ [{i+1:02d}/50] {email} — Trust: {trust}")
+            print(f"  [OK] [{i+1:02d}/50] {email} - Trust: {trust}")
             success += 1
         else:
-            print(f"  ❌ [{i+1:02d}/50] {email} — Failed: {resp}")
+            print(f"  [FAIL] [{i+1:02d}/50] {email} - Failed: {resp}")
             failed += 1
 
-        # Randomized delay — simulate users registering over time
+        # Randomized delay -- simulate users registering over time
         time.sleep(random.uniform(0.3, 1.2))
 
     print("\n" + "=" * 55)

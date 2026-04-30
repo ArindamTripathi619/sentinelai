@@ -1,5 +1,5 @@
 """
-SentinelAI — Live Demo Attack Simulator
+SentinelAI -- Live Demo Attack Simulator
 Owner: Parthiv
 
 Runs 3 attack scenarios live during the hackathon presentation.
@@ -11,6 +11,10 @@ Run DURING the demo while the dashboard is projected:
     python simulate_attack.py --scenario geodrift
     python simulate_attack.py --scenario speedbot
 """
+
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 import requests
 import time
@@ -32,34 +36,34 @@ DIM     = "\033[2m"
 
 def header(title):
     print(f"\n{BOLD}{CYAN}{'='*55}{RESET}")
-    print(f"{BOLD}{CYAN}  🚨 SCENARIO: {title}{RESET}")
+    print(f"{BOLD}{CYAN}  [!] SCENARIO: {title}{RESET}")
     print(f"{BOLD}{CYAN}{'='*55}{RESET}\n")
 
 
 def success(msg):
-    print(f"  {GREEN}✅{RESET} {msg}")
+    print(f"  {GREEN}[OK]{RESET} {msg}")
 
 
 def warn(msg):
-    print(f"  {YELLOW}⚠️ {RESET} {msg}")
+    print(f"  {YELLOW}[WARN]{RESET} {msg}")
 
 
 def attack(msg):
-    print(f"  {RED}🤖{RESET} {msg}")
+    print(f"  {RED}[BOT]{RESET} {msg}")
 
 
 def info(msg):
     print(f"  {DIM}{msg}{RESET}")
 
 
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # SCENARIO 1: Bot Wave
 # Registers 15 accounts from the same IP in ~8 seconds
 # Expected: velocity alert fires, users quarantined
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 def scenario_bot_wave():
-    header("BOT WAVE — Mass Registration Attack")
+    header("BOT WAVE -- Mass Registration Attack")
     print(f"  Sending 15 registrations in ~8 seconds from a single IP...")
     print(f"  Watch the dashboard for a bot_wave alert!\n")
     time.sleep(2)
@@ -92,10 +96,10 @@ def scenario_bot_wave():
             status = data.get("status", "?")
 
             if status == "quarantined":
-                attack(f"[{i:02d}/15] {email} — Trust: {trust} → QUARANTINED")
+                attack(f"[{i:02d}/15] {email} -- Trust: {trust} -> QUARANTINED")
                 flagged += 1
             else:
-                warn(f"[{i:02d}/15] {email} — Trust: {trust} → {status}")
+                warn(f"[{i:02d}/15] {email} -- Trust: {trust} -> {status}")
 
         except Exception as e:
             warn(f"[{i:02d}/15] Request failed: {e}")
@@ -104,17 +108,17 @@ def scenario_bot_wave():
 
     print()
     print(f"  {BOLD}Result: {flagged}/15 accounts quarantined{RESET}")
-    print(f"  {BOLD}Check dashboard → Threat Feed for 'bot_wave' alert{RESET}")
+    print(f"  {BOLD}Check dashboard -> Threat Feed for 'bot_wave' alert{RESET}")
 
 
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # SCENARIO 2: Geospatial Drift
 # Logs in as a seeded user from India, then immediately from Germany
 # Expected: geo_drift alert fires
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 def scenario_geo_drift(email: str = None, password: str = None):
-    header("GEO DRIFT — Session Hijack Simulation")
+    header("GEO DRIFT -- Session Hijack Simulation")
 
     # Use a known seeded user or default demo credentials
     if not email:
@@ -137,12 +141,12 @@ def scenario_geo_drift(email: str = None, password: str = None):
             timeout=3,
         )
         data1 = resp1.json()
-        success(f"Login from India — Trust: {data1.get('trust_score', '?')}, OTP: {data1.get('otp_required', '?')}")
+        success(f"Login from India -- Trust: {data1.get('trust_score', '?')}, OTP: {data1.get('otp_required', '?')}")
     except Exception as e:
         warn(f"Login 1 failed: {e}")
 
     time.sleep(2)
-    print(f"\n  Step 2: Login from Germany ({GERMANY_IP}) — 2 minutes later")
+    print(f"\n  Step 2: Login from Germany ({GERMANY_IP}) -- 2 minutes later")
     time.sleep(1.5)
 
     try:
@@ -154,22 +158,22 @@ def scenario_geo_drift(email: str = None, password: str = None):
         )
         data2 = resp2.json()
         trust = data2.get("trust_score", "?")
-        attack(f"Login from Germany — Trust: {trust} → GEO DRIFT DETECTED")
+        attack(f"Login from Germany -- Trust: {trust} -> GEO DRIFT DETECTED")
     except Exception as e:
         warn(f"Login 2 failed: {e}")
 
     print()
-    print(f"  {BOLD}Check dashboard → Threat Feed for 'geo_drift' alert{RESET}")
+    print(f"  {BOLD}Check dashboard -> Threat Feed for 'geo_drift' alert{RESET}")
 
 
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # SCENARIO 3: Speed Bot
 # Completes registration in 1.2 seconds with 0 mouse moves
 # Expected: speed_bot + behavioral penalties fire
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 def scenario_speed_bot():
-    header("SPEED BOT — Automated Form Submission")
+    header("SPEED BOT -- Automated Form Submission")
     print(f"  Registering with 1.2s completion time, 0 mouse moves, 3ms typing variance")
     print(f"  A human takes 30-90 seconds. This bot takes 1.2.\n")
     time.sleep(2)
@@ -204,19 +208,19 @@ def scenario_speed_bot():
         rules = data.get("triggered_rules", [])
 
         attack(f"Email: {email}")
-        attack(f"Trust Score: {trust} → Status: {status.upper()}")
+        attack(f"Trust Score: {trust} -> Status: {status.upper()}")
         attack(f"Rules triggered: {', '.join(rules) if rules else 'none'}")
 
     except Exception as e:
         warn(f"Request failed: {e}")
 
     print()
-    print(f"  {BOLD}Check dashboard → User table to see this account flagged{RESET}")
+    print(f"  {BOLD}Check dashboard -> User table to see this account flagged{RESET}")
 
 
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # Main
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="SentinelAI Demo Attack Simulator")
@@ -230,7 +234,7 @@ def main():
     parser.add_argument("--password", help="Password for geodrift scenario (optional)")
     args = parser.parse_args()
 
-    print(f"\n{BOLD}SentinelAI — Live Demo Attack Simulator{RESET}")
+    print(f"\n{BOLD}SentinelAI -- Live Demo Attack Simulator{RESET}")
     print(f"Target API: {API_BASE}")
     print(f"Make sure the backend is running and the dashboard is open!\n")
     input("Press ENTER to begin...\n")
