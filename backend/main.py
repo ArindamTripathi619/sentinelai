@@ -48,9 +48,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Trusted Host Middleware (prevents Host header injection) ---
+extra_allowed_hosts = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.localhost", os.getenv("ALLOWED_HOSTS", "").split(",") if os.getenv("ALLOWED_HOSTS") else []]
+    allowed_hosts=["localhost", "127.0.0.1", "*.localhost", *extra_allowed_hosts],
 )
 
 # --- CORS ---
