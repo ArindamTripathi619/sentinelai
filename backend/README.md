@@ -21,9 +21,9 @@ This directory contains the FastAPI-based backend core for SentinelAI. It manage
 3. **Start the ASGI Server**
    Start up `uvicorn` holding the FastAPI application:
    ```bash
-   uvicorn main:app --reload --port 8000
+   uvicorn main:app --reload --port 9000
    ```
 
 4. **Testing Endpoints**
-   - The endpoints are fully documented automatically via Swagger. Go to: `http://localhost:8000/docs`.
+   - The endpoints are fully documented automatically via Swagger. Go to: `http://localhost:9000/docs`.
    - Postman/Curl usage: You can register (`POST /api/register`), then obtain an access token through `POST /api/login`. Inject the bearer token into Authorization headers on your subsequent requests to securely access dashboard routes.

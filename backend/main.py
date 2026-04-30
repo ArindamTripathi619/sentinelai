@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
+from dotenv import load_dotenv
 import auth
 import users
 import alerts
@@ -25,6 +26,32 @@ import models
 
 models.Base.metadata.create_all(bind=engine)
 
+# --- Security Headers Middleware ---
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # Prevent clickjacking attacks
+        response.headers["X-Frame-Options"] = "DENY"
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Enable XSS protection
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Enforce HTTPS (set max-age to 1 year)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Set SameSite cookies for CSRF protection
+        response.headers["Set-Cookie"] = "SameSite=Strict"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# --- Trusted Host Middleware (prevents Host header injection) ---
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "*.localhost", os.getenv("ALLOWED_HOSTS", "").split(",") if os.getenv("ALLOWED_HOSTS") else []]
+)
 
 # --- CORS ---
 app.add_middleware(

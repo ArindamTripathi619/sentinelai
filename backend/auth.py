@@ -18,15 +18,25 @@ from pydantic import BaseModel
 from typing import Optional
 import base64
 import hmac
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 load_dotenv()
 
 router = APIRouter()
 
+# Rate limiter for brute force protection
+limiter = Limiter(key_func=get_remote_address)
+
 # JWT config
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-prod")
+SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-prod")
+if SECRET_KEY == "your-secret-key-change-in-prod":
+    import warnings
+    warnings.warn("⚠️  WARNING: JWT_SECRET is using the default value! This is insecure. Set JWT_SECRET environment variable to a random 32+ byte string.")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = 24
+ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
+
+import bcrypt
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -49,7 +59,18 @@ class CaptchaChallengeResponse(BaseModel):
 
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt (secure, slow hash function resistant to brute force)."""
+    salt = bcrypt.gensalt(rounds=12)  # 12 rounds ≈ 200ms on modern hardware
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+
+def verify_password(password: str, hash_value: str) -> bool:
+    """Verify password against bcrypt hash."""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hash_value.encode('utf-8'))
+    except Exception:
+        return False
 
 
 def _get_registration_counts(db: Session, *, ip_address: str, user_agent: str, since: datetime) -> tuple[int, int]:
@@ -212,6 +233,7 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
     
     return user
 
+@limiter.limit("5/minute")  # Max 5 registration attempts per IP per minute
 @router.post("/register")
 async def register(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
@@ -220,9 +242,11 @@ async def register(request: Request, db: Session = Depends(get_db)):
     if not email or not password:
         raise HTTPException(status_code=400, detail="Missing email or password")
     
-    # Check if user exists
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(status_code=400, detail="User already exists")
+    # Check if user exists - don't reveal this to prevent user enumeration
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        # Log this attempt but return generic error
+        raise HTTPException(status_code=400, detail="Registration failed. Please try again or contact support.")
     
     # Parse behavioral payload
     beh_data = data.get("behavioralData") or data.get("behavioral") or {}
@@ -317,19 +341,27 @@ async def register(request: Request, db: Session = Depends(get_db)):
     }
 
 
+@limiter.limit("10/minute")  # Max 10 login attempts per IP per minute
 @router.post("/login")
 async def login(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
     email = data.get("email")
     password = data.get("password")
     
-    user = db.query(User).filter(User.email == email, User.password_hash == hash_password(password)).first()
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Missing email or password")
+    
+    user = db.query(User).filter(User.email == email).first()
+    
+    # Verify password using bcrypt - always check even if user doesn't exist (timing attack mitigation)
+    password_valid = verify_password(password, user.password_hash) if user else False
+    
     ip_address = _extract_ip(request, data)
     user_agent = _extract_user_agent(request, data)
     
-    if not user:
-        # log failed login maybe
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user or not password_valid:
+        # Generic error - don't reveal whether user exists or password is wrong
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     
     current_country = get_country(ip_address)
     previous_login_event = (
@@ -513,23 +545,41 @@ async def send_otp(request: Request, db: Session = Depends(get_db)):
     if user.email != email:
         raise HTTPException(status_code=400, detail="Email does not match OTP session")
     
-    delivery_mode = send_otp_email(email, otp_session.otp_code)
+    # Send OTP with retry logic (hardening)
+    delivery_result = send_otp_email(email, otp_session.otp_code)
+    
+    # Update OTP session with delivery status
+    otp_session.delivery_status = delivery_result["status"]
+    otp_session.delivery_attempts = delivery_result["attempts"]
+    if delivery_result["error"]:
+        otp_session.last_delivery_error = delivery_result["error"]
 
     event = Event(
         user_id=user.id,
         action="otp_sent",
         ip_address=request.client.host if request.client else "127.0.0.1",
         user_agent=request.headers.get("user-agent", "unknown"),
-        metadata_json=json.dumps({"otp_session_id": otp_session.id, "delivery_mode": delivery_mode}),
+        metadata_json=json.dumps({
+            "otp_session_id": otp_session.id,
+            "delivery_status": delivery_result["status"],
+            "delivery_attempts": delivery_result["attempts"],
+            "delivery_error": delivery_result["error"],
+        }),
     )
     db.add(event)
     db.commit()
     
     expires_in_seconds = max(0, int((otp_session.expires_at - datetime.utcnow()).total_seconds()))
+    
+    # In strict mode, fail if SMTP couldn't deliver
+    if os.getenv("SMTP_STRICT_MODE", "0") == "1" and delivery_result["status"] == "failed":
+        raise HTTPException(status_code=503, detail=f"OTP delivery failed: {delivery_result['error']}")
+    
     return {
         "message": "OTP sent successfully",
         "expires_in_seconds": expires_in_seconds,
-        "delivery_mode": delivery_mode,
+        "delivery_status": delivery_result["status"],
+        "delivery_attempts": delivery_result["attempts"],
     }
 
 

@@ -4,7 +4,7 @@
 > Frontend (Debarshi) and Scripts (Parthiv) should build against this contract  
 > even before Atul's backend is complete — use mock data in the meantime.
 
-Base URL (local): `http://localhost:8000/api`
+Base URL (local): `http://localhost:9000/api`
 
 ---
 

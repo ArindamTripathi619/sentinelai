@@ -78,3 +78,8 @@ class OtpSession(Base):
     otp_code = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False)
+    
+    # SMTP delivery tracking (hardening)
+    delivery_status = Column(String, default="pending")  # pending | delivered | failed | console_fallback
+    delivery_attempts = Column(Integer, default=0)
+    last_delivery_error = Column(String, nullable=True)

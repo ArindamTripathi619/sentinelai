@@ -11,7 +11,9 @@ aiosqlite
 # Auth & Security
 python-jose[cryptography]
 passlib[bcrypt]
+bcrypt
 python-multipart
+slowapi
 
 # ML
 scikit-learn==1.5.0

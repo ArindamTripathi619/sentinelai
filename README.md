@@ -96,7 +96,7 @@ cp .env.example .env
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 9000
 ```
 
 ### 4. Start the frontend
@@ -104,7 +104,7 @@ uvicorn main:app --reload --port 8000
 cd frontend
 npm install
 npm run dev
-# Opens at http://localhost:5173
+# Opens at http://localhost:3000
 ```
 
 ### 5. Seed the database with demo users
@@ -125,10 +125,10 @@ python simulate_attack.py
 
 | Service | URL |
 |---|---|
-| Backend API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/docs |
-| Admin Dashboard | http://localhost:5173/admin |
-| User Login | http://localhost:5173/login |
+| Backend API | http://localhost:9000 |
+| API Docs (Swagger) | http://localhost:9000/docs |
+| Admin Dashboard | http://localhost:3000/admin |
+| User Login | http://localhost:3000/login |
 
 ---
 
