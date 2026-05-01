@@ -1,20 +1,8 @@
 {
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
   "installCommand": "pip install -r requirements.txt",
-  "builds": [
-    {
-      "src": "frontend",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    },
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
-  ],
   "routes": [
     {
       "src": "/api/(.*)",
@@ -33,20 +21,8 @@
       "dest": "api/index.py"
     },
     {
-      "src": "/static/(.*)",
-      "dest": "frontend/dist/static/$1"
-    },
-    {
-      "src": "/assets/(.*)",
-      "dest": "frontend/dist/assets/$1"
-    },
-    {
-      "src": "/(.*\\..*)",
-      "dest": "frontend/dist/$1"
-    },
-    {
       "src": "/(.*)",
-      "dest": "frontend/dist/index.html"
+      "dest": "/index.html"
     }
   ],
   "env": {
@@ -61,7 +37,7 @@
     "SMTP_RETRIES": "3",
     "SMTP_TIMEOUT": "10",
     "SMTP_STRICT_MODE": "1",
-    "DATABASE_URL": "sqlite:///./sentinel.db",
+    "DATABASE_URL": "sqlite:////tmp/sentinel.db",
     "APP_NAME": "SentinelAI",
     "LOG_LEVEL": "INFO"
   }
