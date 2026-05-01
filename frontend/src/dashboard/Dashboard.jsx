@@ -34,6 +34,9 @@ export default function Dashboard() {
   const [liveAlerts, setLiveAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [totalUsers, setTotalUsers] = useState(0);
 
   const getAlertIcon = (alertType) => {
     switch (alertType?.toLowerCase()) {
@@ -68,17 +71,19 @@ export default function Dashboard() {
     const loadDashboard = async () => {
       try {
         setError('');
+        const offset = (currentPage - 1) * pageSize;
         const [summaryRes, velocityRes, trustRes, usersRes, alertsRes] = await Promise.all([
           api.get('/analytics/summary'),
           api.get('/analytics/velocity?window=1h&bucket=1min'),
           api.get('/analytics/trust-distribution'),
-          api.get('/users?limit=8&offset=0'),
+          api.get(`/users?limit=${pageSize}&offset=${offset}`),
           api.get('/alerts?limit=15'),
         ]);
 
         if (!mounted) return;
 
         setSummary(summaryRes.data);
+        setTotalUsers(summaryRes.data.total_users || 0);
         setVelocityData((velocityRes.data.data || []).map((point, index) => ({
           time: point.timestamp ? new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : `T${index + 1}`,
           signups: point.registrations ?? 0,
@@ -121,7 +126,7 @@ export default function Dashboard() {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [currentPage, pageSize]);
 
   const handleLogout = () => {
     clearUserSession();
@@ -183,16 +188,26 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Registration Velocity Chart (Panel 4) */}
-        <div className="lg:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm">
+        <div className="lg:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm flex flex-col h-[22rem] lg:h-[26rem]">
           <h2 className="text-lg font-semibold mb-6 flex items-center">
             <Activity className="w-5 h-5 mr-2 text-blue-400" />
             Registration Velocity (Live)
           </h2>
-          <div className="h-64">
+          <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={velocityData}>
+              <LineChart
+                data={velocityData}
+                margin={{ top: 6, right: 8, left: 0, bottom: 16 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="time" stroke="#9ca3af" axisLine={false} tickLine={false} />
+                <XAxis
+                  dataKey="time"
+                  stroke="#9ca3af"
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={12}
+                  height={32}
+                />
                 <YAxis stroke="#9ca3af" axisLine={false} tickLine={false} />
                 <RechartsTooltip 
                   contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem' }}
@@ -212,7 +227,7 @@ export default function Dashboard() {
         </div>
 
         {/* Live Threat Feed (Panel 1) */}
-        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm flex flex-col">
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm flex flex-col h-[22rem] lg:h-[26rem]">
           <h2 className="text-lg font-semibold mb-4 flex items-center">
             <ShieldAlert className="w-5 h-5 mr-2 text-red-400" />
             Live Threat Feed
@@ -239,9 +254,9 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Trust Score Distribution (Panel 2) */}
-        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm">
+        <div className="h-[22rem] lg:h-[26rem] bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm flex flex-col">
           <h2 className="text-lg font-semibold mb-6">Trust Score Distribution</h2>
-          <div className="h-64">
+          <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={trustScoreCards} layout="vertical" margin={{ top: 0, right: 30, left: 20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
@@ -262,7 +277,7 @@ export default function Dashboard() {
         </div>
 
         {/* User Forensics Table (Panel 3) */}
-        <div className="lg:col-span-2 bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm overflow-hidden flex flex-col">
+        <div className="lg:col-span-2 h-[22rem] lg:h-[26rem] bg-gray-800/50 border border-gray-700 rounded-xl p-6 shadow-lg backdrop-blur-sm overflow-hidden flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-lg font-semibold">User Forensics</h2>
             <div className="relative">
@@ -279,7 +294,7 @@ export default function Dashboard() {
             </div>
           </div>
           
-          <div className="overflow-x-auto">
+          <div className="flex-1 overflow-x-auto overflow-y-auto min-h-0">
             <table className="w-full text-left text-sm">
               <thead className="text-xs text-gray-400 uppercase bg-gray-900/50 border-y border-gray-700">
                 <tr>
@@ -341,6 +356,53 @@ export default function Dashboard() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="mt-6 flex items-center justify-between pt-4 border-t border-gray-700">
+            <div className="text-xs text-gray-400">
+              Showing {users.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} – {Math.min(currentPage * pageSize, totalUsers)} of {totalUsers} users
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-700 bg-gray-900/50 text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-gray-800 transition-colors"
+              >
+                ← Prev
+              </button>
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.ceil(totalUsers / pageSize) }, (_, i) => i + 1)
+                  .filter(page => {
+                    const distance = Math.abs(page - currentPage);
+                    return distance === 0 || distance === 1 || page === 1 || page === Math.ceil(totalUsers / pageSize);
+                  })
+                  .map((page, idx, arr) => (
+                    <React.Fragment key={page}>
+                      {idx > 0 && arr[idx - 1] !== page - 1 && (
+                        <span className="text-gray-500">...</span>
+                      )}
+                      <button
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-2 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                          page === currentPage
+                            ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                            : 'border-gray-700 bg-gray-900/50 text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    </React.Fragment>
+                  ))}
+              </div>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalUsers / pageSize), p + 1))}
+                disabled={currentPage === Math.ceil(totalUsers / pageSize)}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-700 bg-gray-900/50 text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-gray-800 transition-colors"
+              >
+                Next →
+              </button>
+            </div>
           </div>
         </div>
       </div>
