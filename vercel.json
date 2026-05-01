@@ -1,16 +1,18 @@
 {
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
   "installCommand": "pip install -r requirements.txt",
   "builds": [
     {
-      "src": "api/index.py",
-      "use": "@vercel/python",
+      "src": "frontend",
+      "use": "@vercel/static-build",
       "config": {
-        "maxLambdaSize": "50mb",
-        "runtime": "python3.11"
+        "distDir": "dist"
       }
+    },
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
@@ -29,6 +31,18 @@
     {
       "src": "/redoc",
       "dest": "api/index.py"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "frontend/dist/static/$1"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "frontend/dist/assets/$1"
+    },
+    {
+      "src": "/(.*\\..*)",
+      "dest": "frontend/dist/$1"
     },
     {
       "src": "/(.*)",
