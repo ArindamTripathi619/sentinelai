@@ -1,5 +1,4 @@
 {
-  "name": "sentinelai",
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
@@ -37,13 +36,13 @@
     }
   ],
   "env": {
-    "JWT_SECRET": "@JWT_SECRET",
+    "JWT_SECRET": "${JWT_SECRET}",
     "JWT_ALGORITHM": "HS256",
     "JWT_EXPIRATION_HOURS": "24",
     "SMTP_HOST": "smtp.gmail.com",
     "SMTP_PORT": "587",
-    "SMTP_EMAIL": "@SMTP_EMAIL",
-    "SMTP_APP_PASSWORD": "@SMTP_APP_PASSWORD",
+    "SMTP_EMAIL": "${SMTP_EMAIL}",
+    "SMTP_APP_PASSWORD": "${SMTP_APP_PASSWORD}",
     "SMTP_FROM_NAME": "SentinelAI",
     "SMTP_RETRIES": "3",
     "SMTP_TIMEOUT": "10",
