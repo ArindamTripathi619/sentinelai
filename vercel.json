@@ -1,0 +1,55 @@
+{
+  "name": "sentinelai",
+  "version": 2,
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "pip install -r requirements.txt",
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/docs",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/openapi.json",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/redoc",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend/dist/index.html"
+    }
+  ],
+  "env": {
+    "JWT_SECRET": "@JWT_SECRET",
+    "JWT_ALGORITHM": "HS256",
+    "JWT_EXPIRATION_HOURS": "24",
+    "SMTP_HOST": "smtp.gmail.com",
+    "SMTP_PORT": "587",
+    "SMTP_EMAIL": "@SMTP_EMAIL",
+    "SMTP_APP_PASSWORD": "@SMTP_APP_PASSWORD",
+    "SMTP_FROM_NAME": "SentinelAI",
+    "SMTP_RETRIES": "3",
+    "SMTP_TIMEOUT": "10",
+    "SMTP_STRICT_MODE": "1",
+    "DATABASE_URL": "sqlite:///./sentinel.db",
+    "APP_NAME": "SentinelAI",
+    "LOG_LEVEL": "INFO"
+  }
+}
