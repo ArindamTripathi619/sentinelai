@@ -4,6 +4,10 @@ import logging
 import time
 from email.message import EmailMessage
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logger = logging.getLogger(__name__)
