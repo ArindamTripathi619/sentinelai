@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel
+import json
 
 from database import get_db
 from models import Alert, User
@@ -12,6 +13,21 @@ router = APIRouter()
 
 class ResolveAlertRequest(BaseModel):
     resolved: bool = True
+
+
+def _parse_jsonish(value):
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            return [item for item in value.split(",") if item]
+    return []
 
 @router.get("")
 def get_alerts(
@@ -37,7 +53,7 @@ def get_alerts(
                 "type": a.type,
                 "severity": a.severity,
                 "description": a.description,
-                "affected_user_ids": a.affected_user_ids.split(",") if a.affected_user_ids else [],
+                "affected_user_ids": _parse_jsonish(a.affected_user_ids),
                 "timestamp": a.timestamp.isoformat() + "Z",
                 "resolved": a.resolved
             }

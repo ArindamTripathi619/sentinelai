@@ -2,21 +2,14 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useBehavioral } from '../sdk/behavioral';
 import { Shield, Lock, Mail, ArrowRight } from 'lucide-react';
-import { api, setUserSession } from '../lib/api';
+import { api } from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [otpSessionId, setOtpSessionId] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [captchaToken, setCaptchaToken] = useState('');
-  const [captchaPrompt, setCaptchaPrompt] = useState('');
-  const [captchaAnswer, setCaptchaAnswer] = useState('');
-  const [requiresOtp, setRequiresOtp] = useState(false);
-  const [requiresCaptcha, setRequiresCaptcha] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
   const navigate = useNavigate();
   const getBehavioralPayload = useBehavioral();
 
@@ -24,82 +17,32 @@ export default function Login() {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-    setInfo('');
-    
-    const behavioralData = getBehavioralPayload();
 
     try {
-      const response = await api.post('/login', {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        behavioralData,
-        ip_address: '127.0.0.1',
-        user_agent: navigator.userAgent,
-        country: 'US',
       });
 
-      if (response.data.otp_required) {
-        setRequiresOtp(true);
-        setOtpSessionId(response.data.otp_session_id);
-        setInfo('OTP is required. We sent a code to your account session.');
+      if (authError) {
+        throw authError;
+      }
 
-        if (response.data.otp_session_id) {
-          await api.post('/otp/send', {
-            otp_session_id: response.data.otp_session_id,
-            email,
-          });
-        }
-      } else if (response.data.captcha_required) {
-        setRequiresCaptcha(true);
-        setCaptchaToken(response.data.captcha_token);
-        setCaptchaPrompt(response.data.captcha_prompt);
-        setInfo('Captcha verification is required.');
-      } else if (response.data.token) {
-        setUserSession({ token: response.data.token, userId: response.data.user_id });
+      if (data.session) {
+        const behavioralData = getBehavioralPayload();
+        await api.post('/sync', {
+          event_type: 'login',
+          behavioral: behavioralData,
+          ip_address: '127.0.0.1',
+          user_agent: navigator.userAgent,
+          country: 'US',
+        });
         navigate('/dashboard', { replace: true });
+      } else {
+        setError('Check your email to confirm your account, then sign in again.');
       }
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Login failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleOtpVerify = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const response = await api.post('/otp/verify', {
-        otp_session_id: otpSessionId,
-        otp_code: otpCode,
-      });
-
-      setUserSession({ token: response.data.token, userId: response.data.user_id });
-      navigate('/dashboard', { replace: true });
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'OTP verification failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCaptchaVerify = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const response = await api.post('/captcha/verify', {
-        captcha_token: captchaToken,
-        captcha_answer: captchaAnswer,
-      });
-
-      setUserSession({ token: response.data.token, userId: response.data.user_id });
-      navigate('/dashboard', { replace: true });
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Captcha verification failed');
+      setError(err?.message || err?.response?.data?.detail || 'Login failed');
     } finally {
       setIsLoading(false);
     }
@@ -130,14 +73,7 @@ export default function Login() {
           </div>
         )}
 
-        {info && (
-          <div className="mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-200">
-            {info}
-          </div>
-        )}
-
-        {!requiresOtp && !requiresCaptcha ? (
-          <form onSubmit={handleLogin} className="space-y-6">
+        <form onSubmit={handleLogin} className="space-y-6">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-300">Email Address</label>
             <div className="relative">
@@ -186,75 +122,7 @@ export default function Login() {
               </>
             )}
           </button>
-          </form>
-        ) : requiresOtp ? (
-          <form onSubmit={handleOtpVerify} className="space-y-6">
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-300">OTP Code</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                required
-                className="w-full bg-gray-900/50 border border-gray-700 text-white rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all tracking-[0.3em] text-center"
-                placeholder="123456"
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value)}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold rounded-lg py-2.5 px-4 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  <span>Verify OTP</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleCaptchaVerify} className="space-y-6">
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-300">Captcha Challenge</label>
-              <div className="rounded-lg border border-gray-700 bg-gray-900/50 px-4 py-3 text-center tracking-[0.4em] text-lg font-semibold text-blue-300">
-                {captchaPrompt || 'Loading...'}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-300">Enter the code above</label>
-              <input
-                type="text"
-                required
-                className="w-full bg-gray-900/50 border border-gray-700 text-white rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all tracking-[0.3em] text-center uppercase"
-                placeholder="ABC123"
-                value={captchaAnswer}
-                onChange={(e) => setCaptchaAnswer(e.target.value)}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold rounded-lg py-2.5 px-4 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  <span>Verify Captcha</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-        )}
+        </form>
 
         <div className="mt-6 text-center text-sm text-gray-400">
           New to SentinelAI?{' '}

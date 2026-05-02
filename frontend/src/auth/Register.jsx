@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useBehavioral } from '../sdk/behavioral';
 import { ShieldAlert, User, Mail, Lock, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api';
+import { supabase } from '../lib/supabase';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -19,22 +20,39 @@ export default function Register() {
     setIsLoading(true);
     setError('');
     setSuccess('');
-    
-    const behavioralData = getBehavioralPayload();
 
     try {
-      const response = await api.post('/register', {
+      const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        behavioralData,
+        options: {
+          data: {
+            full_name: name,
+          },
+        },
       });
 
-      setSuccess(`Registration successful. Trust score: ${response.data.trust_score}.`);
-      setTimeout(() => {
-        navigate('/login', { replace: true });
-      }, 1200);
+      if (authError) {
+        throw authError;
+      }
+
+      if (data.session) {
+        const behavioralData = getBehavioralPayload();
+        await api.post('/sync', {
+          event_type: 'register',
+          behavioral: behavioralData,
+          ip_address: '127.0.0.1',
+          user_agent: navigator.userAgent,
+          country: 'US',
+        });
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+
+      setSuccess('Registration successful. Check your email to confirm your account, then sign in.');
+      setTimeout(() => navigate('/login', { replace: true }), 1500);
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Registration failed');
+      setError(err?.message || err?.response?.data?.detail || 'Registration failed');
     } finally {
       setIsLoading(false);
     }

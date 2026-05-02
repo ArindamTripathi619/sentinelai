@@ -1,14 +1,46 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './auth/Login'
 import Register from './auth/Register'
 import Dashboard from './dashboard/Dashboard'
 import UserTimeline from './dashboard/UserTimeline'
-import { getAuthToken } from './lib/api'
+import { supabase } from './lib/supabase'
 import { useNavigate, useParams } from 'react-router-dom'
 
 function ProtectedRoute({ children }) {
-  return getAuthToken() ? children : <Navigate to="/login" replace />
+  const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState(null)
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession()
+      if (!mounted) {
+        return
+      }
+      setSession(data.session || null)
+      setLoading(false)
+    }
+
+    loadSession()
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+      setLoading(false)
+    })
+
+    return () => {
+      mounted = false
+      subscription.subscription.unsubscribe()
+    }
+  }, [])
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">Loading...</div>
+  }
+
+  return session ? children : <Navigate to="/login" replace />
 }
 
 function UserTimelineRoute() {

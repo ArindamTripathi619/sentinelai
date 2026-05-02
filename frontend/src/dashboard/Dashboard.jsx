@@ -7,7 +7,8 @@ import {
   ChevronRight, Search, Server, Shield, LogOut
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api, clearUserSession } from '../lib/api';
+import { api } from '../lib/api';
+import { signOut } from '../lib/supabase';
 
 const COLORS = {
   Blocked: '#ef4444',     // Red
@@ -110,7 +111,7 @@ export default function Dashboard() {
       } catch (err) {
         if (!mounted) return;
         if (err?.response?.status === 401) {
-          clearUserSession();
+          await signOut();
           navigate('/login', { replace: true });
           return;
         }
@@ -129,8 +130,9 @@ export default function Dashboard() {
   }, [currentPage, pageSize]);
 
   const handleLogout = () => {
-    clearUserSession();
-    navigate('/login', { replace: true });
+    signOut().finally(() => {
+      navigate('/login', { replace: true });
+    });
   };
 
   const filteredUsers = users.filter((user) => {

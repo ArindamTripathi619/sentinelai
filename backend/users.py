@@ -13,6 +13,21 @@ router = APIRouter()
 class StatusUpdateRequest(BaseModel):
     status: str
 
+
+def _parse_jsonish(value):
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            return [item for item in value.split(",") if item]
+    return []
+
 @router.get("")
 def get_users(
     status: Optional[str] = None,
@@ -71,7 +86,7 @@ def get_user(user_id: str, db: Session = Depends(get_db), current_user: User = D
             "keypress_count": user.keypress_count
         },
         "ml_anomaly_score": user.ml_anomaly_score,
-        "flags": user.triggered_flags.split(",") if user.triggered_flags else []
+        "flags": _parse_jsonish(user.triggered_flags),
     }
 
 @router.get("/{user_id}/timeline")
@@ -106,6 +121,8 @@ def get_user_timeline(user_id: str, db: Session = Depends(get_db), current_user:
 def _parse_metadata(metadata_json: Optional[str]) -> dict:
     if not metadata_json:
         return {}
+    if isinstance(metadata_json, dict):
+        return metadata_json
     try:
         parsed = json.loads(metadata_json)
         return parsed if isinstance(parsed, dict) else {}

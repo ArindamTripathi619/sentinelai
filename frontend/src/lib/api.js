@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { supabase } from './supabase'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -9,36 +10,9 @@ export const api = axios.create({
   },
 })
 
-export function getAuthToken() {
-  return localStorage.getItem('sentinelai_token')
-}
-
-export function setAuthToken(token) {
-  if (token) {
-    localStorage.setItem('sentinelai_token', token)
-  } else {
-    localStorage.removeItem('sentinelai_token')
-  }
-}
-
-export function getUserId() {
-  return localStorage.getItem('sentinelai_user_id')
-}
-
-export function setUserSession({ token, userId }) {
-  setAuthToken(token)
-  if (userId) {
-    localStorage.setItem('sentinelai_user_id', userId)
-  }
-}
-
-export function clearUserSession() {
-  localStorage.removeItem('sentinelai_token')
-  localStorage.removeItem('sentinelai_user_id')
-}
-
-api.interceptors.request.use((config) => {
-  const token = getAuthToken()
+api.interceptors.request.use(async (config) => {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }

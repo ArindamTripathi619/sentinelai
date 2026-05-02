@@ -1,42 +1,31 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
-from sqlalchemy.orm import Session
-from database import get_db
-from models import User, Event, Alert, OtpSession
-from scorer import score_registration, score_login, BehavioralPayload
-from geo import get_country
-from mailer import send_otp_email
-import hashlib
-import secrets
+from datetime import datetime, timedelta
 import json
 import os
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
+from typing import Any, Optional, cast
 
-# JWT imports
-from jose import JWTError, jwt
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
-from typing import Optional
-import base64
-import hmac
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy.orm import Session
+
+from database import get_db
+from geo import get_country
+from models import Alert, Event, User
+from scorer import BehavioralPayload, score_login, score_registration
 
 load_dotenv()
 
 router = APIRouter()
-
-# Rate limiter for brute force protection
 limiter = Limiter(key_func=get_remote_address)
 
-# JWT config
-SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-prod")
-if SECRET_KEY == "your-secret-key-change-in-prod":
-    import warnings
-    warnings.warn("⚠️  WARNING: JWT_SECRET is using the default value! This is insecure. Set JWT_SECRET environment variable to a random 32+ byte string.")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
+SUPABASE_URL = os.getenv("SUPABASE_URL", os.getenv("VITE_SUPABASE_URL", "")).rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", os.getenv("VITE_SUPABASE_ANON_KEY", ""))
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_API_KEY = SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY
 
-import bcrypt
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -58,19 +47,98 @@ class CaptchaChallengeResponse(BaseModel):
     recommendation: str
 
 
-def hash_password(password: str) -> str:
-    """Hash password using bcrypt (secure, slow hash function resistant to brute force)."""
-    salt = bcrypt.gensalt(rounds=12)  # 12 rounds ≈ 200ms on modern hardware
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+class TrustSyncRequest(BaseModel):
+    event_type: str = "login"
+    behavioral: dict = {}
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    country: Optional[str] = None
 
 
-def verify_password(password: str, hash_value: str) -> bool:
-    """Verify password against bcrypt hash."""
-    try:
-        return bcrypt.checkpw(password.encode('utf-8'), hash_value.encode('utf-8'))
-    except Exception:
-        return False
+def _auth_headers(access_token: Optional[str] = None) -> dict:
+    if not SUPABASE_URL or not SUPABASE_API_KEY:
+        raise HTTPException(status_code=500, detail="Supabase is not configured")
+
+    headers = {
+        "apikey": SUPABASE_API_KEY,
+        "Content-Type": "application/json",
+    }
+    headers["Authorization"] = f"Bearer {access_token or SUPABASE_API_KEY}"
+    return headers
+
+
+async def _supabase_request(
+    method: str,
+    path: str,
+    *,
+    json_body: Optional[dict] = None,
+    access_token: Optional[str] = None,
+) -> dict:
+    url = f"{SUPABASE_URL}{path}"
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.request(method, url, headers=_auth_headers(access_token), json=json_body)
+
+    if response.status_code >= 400:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = {"error": response.text}
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=detail.get("msg") or detail.get("error_description") or detail.get("error") or detail,
+        )
+
+    if response.content:
+        return response.json()
+    return {}
+
+
+async def _supabase_signup(email: str, password: str, user_data: Optional[dict] = None) -> dict:
+    payload: dict[str, object] = {"email": email, "password": password}
+    if user_data:
+        payload["data"] = user_data
+    return await _supabase_request("POST", "/auth/v1/signup", json_body=payload)
+
+
+async def _supabase_signin(email: str, password: str) -> dict:
+    return await _supabase_request(
+        "POST",
+        "/auth/v1/token?grant_type=password",
+        json_body={"email": email, "password": password},
+    )
+
+
+async def _supabase_get_user(access_token: str) -> dict:
+    return await _supabase_request("GET", "/auth/v1/user", access_token=access_token)
+
+
+def _parse_jsonish(value):
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            return [item for item in value.split(",") if item]
+    return []
+
+
+def _parse_metadata(value):
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 def _get_registration_counts(db: Session, *, ip_address: str, user_agent: str, since: datetime) -> tuple[int, int]:
@@ -105,15 +173,15 @@ def _create_alerts(db: Session, user_id: str, email: str, triggered_rules: list[
         "velocity_spike": "high",
         "platform_velocity_spike": "high",
     }
+
     for rule in triggered_rules:
-        # Rename platform_velocity_spike to bot_wave for dashboard consistency
         alert_type = "bot_wave" if rule == "platform_velocity_spike" else rule
         db.add(
             Alert(
                 type=alert_type,
                 severity=severity_map.get(rule, "medium"),
                 description=f"Rule triggered: {rule} for {email}",
-                affected_user_ids=user_id,
+                affected_user_ids=[user_id],
             )
         )
 
@@ -128,16 +196,12 @@ def _create_ml_alert(db: Session, user_id: str, email: str, ml_anomaly_score: Op
             type="ml_anomaly",
             severity=severity,
             description=f"ML anomaly detected for {email} (score: {ml_anomaly_score:.2f})",
-            affected_user_ids=user_id,
+            affected_user_ids=[user_id],
         )
     )
 
 
 def _extract_ip(request: Request, payload: dict) -> str:
-    """
-    Resolve the client IP with proxy/header support for local demo scripts.
-    Priority: X-Forwarded-For header -> request payload -> socket client host.
-    """
     xff = request.headers.get("x-forwarded-for")
     if xff:
         forwarded_ip = xff.split(",")[0].strip()
@@ -152,88 +216,80 @@ def _extract_ip(request: Request, payload: dict) -> str:
 
 
 def _extract_user_agent(request: Request, payload: dict) -> str:
-    """Prefer real HTTP User-Agent header, then payload fallback for scripted tests."""
     return request.headers.get("user-agent") or payload.get("user_agent") or "unknown"
 
 
-def create_access_token(user_id: str, expires_delta: timedelta = None) -> str:
-    """Create a JWT access token for the user."""
-    if expires_delta is None:
-        expires_delta = timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
-    
-    expire = datetime.utcnow() + expires_delta
-    to_encode = {"sub": user_id, "exp": expire}
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+def _ensure_user_row(
+    db: Session,
+    *,
+    user_id: str,
+    email: str,
+    trust_score: int = 100,
+    status: str = "active",
+    last_ip: Optional[str] = None,
+    behavioral: Optional[BehavioralPayload] = None,
+    ml_anomaly_score: Optional[float] = None,
+    triggered_flags: Optional[list[str]] = None,
+) -> User:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        user = User(id=user_id, email=email, trust_score=trust_score, status=status)
+        db.add(user)
+
+    user_obj = cast(Any, user)
+
+    user_obj.email = email or user_obj.email
+    user_obj.trust_score = trust_score
+    user_obj.status = status
+    user_obj.last_ip = last_ip or user_obj.last_ip
+    if behavioral:
+        user_obj.typing_variance_ms = behavioral.typing_variance_ms
+        user_obj.time_to_complete_sec = behavioral.time_to_complete_sec
+        user_obj.mouse_move_count = behavioral.mouse_move_count
+        user_obj.keypress_count = behavioral.keypress_count
+    if ml_anomaly_score is not None:
+        user_obj.ml_anomaly_score = ml_anomaly_score
+    if triggered_flags is not None:
+        user_obj.triggered_flags = triggered_flags
+    return user_obj
 
 
-def _create_captcha_challenge(user_id: str, prompt_length: int = 6) -> tuple[str, str]:
-    """Create a signed captcha challenge that can be verified without DB state."""
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    prompt = "".join(secrets.choice(alphabet) for _ in range(prompt_length))
-    issued_at = datetime.utcnow().timestamp()
-    payload = f"{user_id}:{prompt}:{issued_at:.0f}"
-    signature = hmac.new(
-        SECRET_KEY.encode("utf-8"),
-        payload.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    token = base64.urlsafe_b64encode(f"{payload}:{signature}".encode("utf-8")).decode("utf-8")
-    return token, prompt
+def _behavioral_payload_from_dict(data: dict) -> BehavioralPayload:
+    return BehavioralPayload(
+        typing_variance_ms=float(data.get("typing_variance_ms", 150)),
+        time_to_complete_sec=float(data.get("time_to_complete_sec", 10)),
+        mouse_move_count=int(data.get("mouse_move_count", 20)),
+        keypress_count=int(data.get("keypress_count", 20)),
+        session_tempo_sec=float(data.get("session_tempo_sec", 0.0)),
+        mouse_entropy_score=float(data.get("mouse_entropy_score", 0.0)),
+        fill_order_score=float(data.get("fill_order_score", 1.0)),
+    )
 
 
-def _verify_captcha_challenge(captcha_token: str, captcha_answer: str, max_age_seconds: int = 300) -> str:
-    """Verify the signed captcha challenge and return the user_id if valid."""
-    try:
-        decoded = base64.urlsafe_b64decode(captcha_token.encode("utf-8")).decode("utf-8")
-        user_id, prompt, issued_at_raw, signature = decoded.rsplit(":", 3)
-        payload = f"{user_id}:{prompt}:{issued_at_raw}"
-        expected_signature = hmac.new(
-            SECRET_KEY.encode("utf-8"),
-            payload.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected_signature):
-            raise ValueError("Invalid captcha signature")
-        if captcha_answer.strip().upper() != prompt.upper():
-            raise ValueError("Incorrect captcha answer")
-        if (datetime.utcnow().timestamp() - float(issued_at_raw)) > max_age_seconds:
-            raise ValueError("Captcha challenge expired")
-        return user_id
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)) -> User:
-    """
-    Dependency to verify JWT token and get current user.
-    Extracts token from Authorization header: "Bearer <token>"
-    Used by all protected endpoints.
-    """
+async def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)) -> User:
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
-    
+
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+
+    access_token = parts[1]
     try:
-        # Extract token from "Bearer <token>" format
-        parts = authorization.split()
-        if len(parts) != 2 or parts[0].lower() != "bearer":
-            raise HTTPException(status_code=401, detail="Invalid authorization header format")
-        
-        token = parts[1]
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
+        auth_user = await _supabase_get_user(access_token)
+    except HTTPException:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    
+
+    user = db.query(User).filter(User.id == auth_user["id"]).first()
+    if not user:
+        user = _ensure_user_row(db, user_id=auth_user["id"], email=auth_user.get("email") or "")
+        db.commit()
+        db.refresh(user)
+
     return user
 
-@limiter.limit("5/minute")  # Max 5 registration attempts per IP per minute
+
+@limiter.limit("5/minute")
 @router.post("/register")
 async def register(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
@@ -241,44 +297,34 @@ async def register(request: Request, db: Session = Depends(get_db)):
     password = data.get("password")
     if not email or not password:
         raise HTTPException(status_code=400, detail="Missing email or password")
-    
-    # Check if user exists - don't reveal this to prevent user enumeration
+
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
-        # Log this attempt but return generic error
         raise HTTPException(status_code=400, detail="Registration failed. Please try again or contact support.")
-    
-    # Parse behavioral payload
+
     beh_data = data.get("behavioralData") or data.get("behavioral") or {}
     behavioral = BehavioralPayload(
-        typing_variance_ms=beh_data.get("typing_variance_ms", 150),
-        time_to_complete_sec=beh_data.get("time_to_complete_sec", 10),
-        mouse_move_count=beh_data.get("mouse_move_count", 20),
-        keypress_count=beh_data.get("keypress_count", 20),
-        session_tempo_sec=beh_data.get("session_tempo_sec", 0.0),
-        mouse_entropy_score=beh_data.get("mouse_entropy_score", 0.0),
-        fill_order_score=beh_data.get("fill_order_score", 1.0),
+        typing_variance_ms=float(beh_data.get("typing_variance_ms", 150)),
+        time_to_complete_sec=float(beh_data.get("time_to_complete_sec", 10)),
+        mouse_move_count=int(beh_data.get("mouse_move_count", 20)),
+        keypress_count=int(beh_data.get("keypress_count", 20)),
+        session_tempo_sec=float(beh_data.get("session_tempo_sec", 0.0)),
+        mouse_entropy_score=float(beh_data.get("mouse_entropy_score", 0.0)),
+        fill_order_score=float(beh_data.get("fill_order_score", 1.0)),
     )
 
     ip_address = _extract_ip(request, data)
     user_agent = _extract_user_agent(request, data)
-    
     hour_ago = datetime.utcnow() - timedelta(hours=1)
     minute_ago = datetime.utcnow() - timedelta(minutes=1)
-    reg_count, same_ua_count = _get_registration_counts(
-        db,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        since=hour_ago,
-    )
-    
-    # Query platform-wide registrations per minute for spike detection
-    registrations_per_minute = (
-        db.query(Event)
-        .filter(Event.action == "register", Event.timestamp >= minute_ago)
-        .count()
-    )
-    
+    reg_count, same_ua_count = _get_registration_counts(db, ip_address=ip_address, user_agent=user_agent, since=hour_ago)
+    registrations_per_minute = db.query(Event).filter(Event.action == "register", Event.timestamp >= minute_ago).count()
+
+    auth_response = await _supabase_signup(email, password, user_data={"full_name": data.get("name")})
+    supabase_user = auth_response.get("user") or {}
+    if not supabase_user.get("id"):
+        raise HTTPException(status_code=400, detail="Supabase registration failed")
+
     score_result = score_registration(
         email=email,
         behavioral=behavioral,
@@ -286,352 +332,302 @@ async def register(request: Request, db: Session = Depends(get_db)):
         user_agent=user_agent,
         registrations_from_ip_last_hour=reg_count,
         accounts_with_same_ua_today=same_ua_count,
+        ml_anomaly_score=None,
         registrations_per_minute=registrations_per_minute,
     )
-    
-    new_user = User(
-        email=email,
-        password_hash=hash_password(password),
+
+    new_user = _ensure_user_row(
+        db,
+        user_id=supabase_user["id"],
+        email=supabase_user.get("email") or email,
         trust_score=score_result.trust_score,
         status="quarantined" if score_result.trust_score < 40 else "active",
         last_ip=ip_address,
-        typing_variance_ms=behavioral.typing_variance_ms,
-        time_to_complete_sec=behavioral.time_to_complete_sec,
-        mouse_move_count=behavioral.mouse_move_count,
-        keypress_count=behavioral.keypress_count,
+        behavioral=behavioral,
+        ml_anomaly_score=score_result.ml_anomaly_score,
+        triggered_flags=score_result.triggered_rules,
     )
-    db.add(new_user)
+    new_user_obj = cast(Any, new_user)
+
+    db.add(
+        Event(
+            user_id=str(new_user_obj.id),
+            action="register",
+            ip_address=ip_address,
+            country=get_country(ip_address),
+            user_agent=user_agent,
+            trust_score_at_time=score_result.trust_score,
+            metadata_json={
+                "triggered_rules": score_result.triggered_rules,
+                "rule_penalty": score_result.rule_penalty,
+                "behavioral_penalty": score_result.behavioral_penalty,
+                "ml_penalty": score_result.ml_penalty,
+                "ml_anomaly_score": score_result.ml_anomaly_score,
+                "recommendation": score_result.recommendation,
+            },
+        )
+    )
+    _create_alerts(db, str(new_user_obj.id), email, score_result.triggered_rules)
+    _create_ml_alert(db, str(new_user_obj.id), email, score_result.ml_anomaly_score)
     db.commit()
     db.refresh(new_user)
-    
-    # Log event
-    event = Event(
-        user_id=new_user.id,
-        action="register",
-        ip_address=ip_address,
-        country=get_country(ip_address),
-        user_agent=user_agent,
-        trust_score_at_time=score_result.trust_score,
-        metadata_json=json.dumps({
-            "triggered_rules": score_result.triggered_rules,
-            "rule_penalty": score_result.rule_penalty,
-            "behavioral_penalty": score_result.behavioral_penalty,
-            "ml_penalty": score_result.ml_penalty,
-            "ml_anomaly_score": score_result.ml_anomaly_score,
-            "recommendation": score_result.recommendation,
-        }),
-    )
-    db.add(event)
-    
-    # Create alerts if triggered
-    _create_alerts(db, new_user.id, email, score_result.triggered_rules)
-    _create_ml_alert(db, new_user.id, email, score_result.ml_anomaly_score)
-        
-    db.commit()
-    
+
+    session = auth_response.get("session") or {}
     return {
         "message": "Registration successful",
+        "user_id": str(new_user_obj.id),
         "trust_score": score_result.trust_score,
-        "status": new_user.status,
+        "status": new_user_obj.status,
         "triggered_rules": score_result.triggered_rules,
         "rule_penalty": score_result.rule_penalty,
         "behavioral_penalty": score_result.behavioral_penalty,
         "ml_penalty": score_result.ml_penalty,
         "recommendation": score_result.recommendation,
+        "token": session.get("access_token"),
+        "token_type": session.get("token_type", "bearer"),
     }
 
 
-@limiter.limit("10/minute")  # Max 10 login attempts per IP per minute
+@limiter.limit("10/minute")
 @router.post("/login")
 async def login(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
     email = data.get("email")
     password = data.get("password")
-    
+
     if not email or not password:
         raise HTTPException(status_code=400, detail="Missing email or password")
-    
-    user = db.query(User).filter(User.email == email).first()
-    
-    # Verify password using bcrypt - always check even if user doesn't exist (timing attack mitigation)
-    password_valid = verify_password(password, user.password_hash) if user else False
-    
+
+    auth_response = await _supabase_signin(email, password)
+    session = auth_response.get("session") or {}
+    auth_user = auth_response.get("user") or {}
+    if not auth_user.get("id") or not session.get("access_token"):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
     ip_address = _extract_ip(request, data)
     user_agent = _extract_user_agent(request, data)
-    
-    if not user or not password_valid:
-        # Generic error - don't reveal whether user exists or password is wrong
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
     current_country = get_country(ip_address)
+
+    user = db.query(User).filter(User.id == auth_user["id"]).first()
+    if not user:
+        user = _ensure_user_row(db, user_id=auth_user["id"], email=auth_user.get("email") or email)
+        db.commit()
+        db.refresh(user)
+
+    user_obj = cast(Any, user)
+
     previous_login_event = (
         db.query(Event)
         .filter(Event.user_id == user.id, Event.action == "login")
         .order_by(Event.timestamp.desc())
         .first()
     )
-    last_country = previous_login_event.country if previous_login_event else None
+    last_country: Optional[str] = None
+    if previous_login_event is not None:
+        last_country = cast(Optional[str], previous_login_event.country)
     minutes_since_last_login = None
-    if previous_login_event and previous_login_event.timestamp:
-        minutes_since_last_login = (
-            (datetime.utcnow() - previous_login_event.timestamp).total_seconds() / 60.0
-        )
+    if previous_login_event is not None and previous_login_event.timestamp is not None:
+        minutes_since_last_login = (datetime.utcnow() - previous_login_event.timestamp).total_seconds() / 60.0
 
     score_result = score_login(
-        user_id=user.id,
-        existing_trust_score=user.trust_score,
+        user_id=str(user_obj.id),
+        existing_trust_score=int(user_obj.trust_score),
         ip_address=ip_address,
         current_country=current_country,
         last_country=last_country,
         minutes_since_last_login=minutes_since_last_login,
     )
-    
-    user.trust_score = score_result.trust_score
-    user.status = "blocked" if score_result.trust_score < 20 else "quarantined" if score_result.trust_score < 40 else "active"
-    user.last_login_at = datetime.utcnow()
-    db.commit()
-    
-    # Log event
-    event = Event(
-        user_id=user.id,
-        action="login",
-        ip_address=ip_address,
-        country=current_country,
-        user_agent=user_agent,
-        trust_score_at_time=score_result.trust_score,
-        metadata_json=json.dumps({
-            "triggered_rules": score_result.triggered_rules,
-            "rule_penalty": score_result.rule_penalty,
-            "behavioral_penalty": score_result.behavioral_penalty,
-            "ml_penalty": score_result.ml_penalty,
-            "ml_anomaly_score": score_result.ml_anomaly_score,
-            "recommendation": score_result.recommendation,
-        }),
-    )
-    db.add(event)
-    _create_alerts(db, user.id, email, score_result.triggered_rules)
-    _create_ml_alert(db, user.id, email, score_result.ml_anomaly_score)
-    db.commit()
-    
-    # Generate JWT token
-    access_token = create_access_token(user.id)
-    
-    # Determine action based on recommendation (progressive auth policy)
-    # allow (>70): smooth login, otp (40-70): OTP challenge, captcha (20-39): captcha challenge, quarantine (<20): block + alert
-    otp_required = score_result.recommendation == "otp"
-    captcha_required = score_result.recommendation == "captcha"
-    is_blocked = score_result.recommendation == "quarantine"
 
-    if score_result.recommendation in ["captcha", "quarantine"]:
-        db.add(
-            Alert(
-                type="captcha_challenge" if captcha_required else "trust_quarantine",
-                severity="medium" if captcha_required else "high",
-                description=f"Low-trust login for {email}: {score_result.recommendation}",
-                affected_user_ids=user.id,
-            )
+    user_obj.trust_score = score_result.trust_score
+    user_obj.status = "blocked" if score_result.trust_score < 20 else "quarantined" if score_result.trust_score < 40 else "active"
+    user_obj.last_login_at = datetime.utcnow()
+    user_obj.last_ip = ip_address
+
+    db.add(
+        Event(
+            user_id=str(user_obj.id),
+            action="login",
+            ip_address=ip_address,
+            country=current_country,
+            user_agent=user_agent,
+            trust_score_at_time=score_result.trust_score,
+            metadata_json={
+                "rule_penalty": score_result.rule_penalty,
+                "behavioral_penalty": score_result.behavioral_penalty,
+                "ml_penalty": score_result.ml_penalty,
+                "ml_anomaly_score": score_result.ml_anomaly_score,
+                "recommendation": score_result.recommendation,
+            },
         )
-    
-    if is_blocked:
-        # Trust score too low — reject login and alert
+    )
+    _create_alerts(db, str(user_obj.id), email, score_result.triggered_rules)
+    _create_ml_alert(db, str(user_obj.id), email, score_result.ml_anomaly_score)
+    db.commit()
+
+    if score_result.trust_score < 20:
         return {
             "token": None,
             "trust_score": score_result.trust_score,
             "otp_required": False,
+            "captcha_required": False,
             "is_blocked": True,
-            "user_id": user.id,
+            "user_id": str(user_obj.id),
             "recommendation": score_result.recommendation,
-            "message": "Account flagged. Please contact support."
+            "message": "Account flagged. Please contact support.",
         }
-    elif otp_required:
-        # Create OTP session for medium-trust users
-        otp_code = secrets.randbelow(1000000)
-        otp_code_str = str(otp_code).zfill(6)
-        otp_session = OtpSession(
-            user_id=user.id,
-            otp_code=otp_code_str,
-            expires_at=datetime.utcnow() + timedelta(minutes=5)
-        )
-        db.add(otp_session)
-        db.commit()
-        db.refresh(otp_session)
-        
-        return {
-            "token": None,
-            "trust_score": score_result.trust_score,
-            "otp_required": True,
-            "otp_session_id": otp_session.id,
-            "user_id": user.id,
-            "recommendation": score_result.recommendation
-        }
-    elif captcha_required:
-        captcha_token, captcha_prompt = _create_captcha_challenge(user.id)
-        return {
-            "token": None,
-            "trust_score": score_result.trust_score,
-            "captcha_required": True,
-            "captcha_token": captcha_token,
-            "captcha_prompt": captcha_prompt,
-            "user_id": user.id,
-            "recommendation": score_result.recommendation,
-        }
-    else:
-        # High-trust user — allow smooth login
-        return {
-            "token": access_token,
-            "token_type": "bearer",
-            "trust_score": score_result.trust_score,
-            "otp_required": False,
-            "user_id": user.id,
-            "recommendation": score_result.recommendation
-        }
+
+    return {
+        "token": session.get("access_token"),
+        "token_type": session.get("token_type", "bearer"),
+        "trust_score": score_result.trust_score,
+        "otp_required": False,
+        "captcha_required": False,
+        "is_blocked": False,
+        "user_id": str(user_obj.id),
+        "recommendation": score_result.recommendation,
+    }
 
 
 @router.post("/captcha/verify")
-async def verify_captcha(request: Request, db: Session = Depends(get_db)):
-    """Verify a captcha challenge and issue a JWT token."""
-    data = await request.json()
-    captcha_token = data.get("captcha_token")
-    captcha_answer = data.get("captcha_answer")
-
-    if not captcha_token or not captcha_answer:
-        raise HTTPException(status_code=400, detail="Missing captcha_token or captcha_answer")
-
-    user_id = _verify_captcha_challenge(captcha_token, captcha_answer)
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    access_token = create_access_token(user.id)
-
-    event = Event(
-        user_id=user.id,
-        action="captcha_verified",
-        ip_address=request.client.host if request.client else "127.0.0.1",
-        user_agent=request.headers.get("user-agent", "unknown"),
-        trust_score_at_time=user.trust_score,
-        metadata_json=json.dumps({"captcha_verified": True}),
-    )
-    db.add(event)
-    db.commit()
-
-    return {
-        "token": access_token,
-        "token_type": "bearer",
-        "user_id": user.id,
-        "message": "Captcha verified successfully",
-    }
+async def verify_captcha(_: Request, __: Session = Depends(get_db)):
+    raise HTTPException(status_code=410, detail="Captcha flow is handled by Supabase Auth now")
 
 
 @router.post("/otp/send")
-async def send_otp(request: Request, db: Session = Depends(get_db)):
-    """Send OTP code to user's email."""
-    data = await request.json()
-    otp_session_id = data.get("otp_session_id")
-    email = data.get("email")
-    
-    if not otp_session_id or not email:
-        raise HTTPException(status_code=400, detail="Missing otp_session_id or email")
-    
-    otp_session = db.query(OtpSession).filter(OtpSession.id == otp_session_id).first()
-    
-    if not otp_session:
-        raise HTTPException(status_code=400, detail="Invalid OTP session")
-
-    user = db.query(User).filter(User.id == otp_session.user_id).first()
-    if not user:
-        raise HTTPException(status_code=400, detail="User not found")
-
-    if user.email != email:
-        raise HTTPException(status_code=400, detail="Email does not match OTP session")
-    
-    # Send OTP with retry logic (hardening)
-    delivery_result = send_otp_email(email, otp_session.otp_code)
-    
-    # Update OTP session with delivery status
-    otp_session.delivery_status = delivery_result["status"]
-    otp_session.delivery_attempts = delivery_result["attempts"]
-    if delivery_result["error"]:
-        otp_session.last_delivery_error = delivery_result["error"]
-
-    event = Event(
-        user_id=user.id,
-        action="otp_sent",
-        ip_address=request.client.host if request.client else "127.0.0.1",
-        user_agent=request.headers.get("user-agent", "unknown"),
-        metadata_json=json.dumps({
-            "otp_session_id": otp_session.id,
-            "delivery_status": delivery_result["status"],
-            "delivery_attempts": delivery_result["attempts"],
-            "delivery_error": delivery_result["error"],
-        }),
-    )
-    db.add(event)
-    db.commit()
-    
-    expires_in_seconds = max(0, int((otp_session.expires_at - datetime.utcnow()).total_seconds()))
-    
-    # In strict mode, fail if SMTP couldn't deliver
-    if os.getenv("SMTP_STRICT_MODE", "0") == "1" and delivery_result["status"] == "failed":
-        raise HTTPException(status_code=503, detail=f"OTP delivery failed: {delivery_result['error']}")
-    
-    return {
-        "message": "OTP sent successfully",
-        "expires_in_seconds": expires_in_seconds,
-        "delivery_status": delivery_result["status"],
-        "delivery_attempts": delivery_result["attempts"],
-    }
+async def send_otp(_: Request, __: Session = Depends(get_db)):
+    raise HTTPException(status_code=410, detail="OTP flow is handled by Supabase Auth now")
 
 
 @router.post("/otp/verify")
-async def verify_otp(request: Request, db: Session = Depends(get_db)):
-    """Verify OTP code and issue JWT token."""
-    data = await request.json()
-    otp_session_id = data.get("otp_session_id")
-    otp_code = data.get("otp_code")
-    
-    if not otp_session_id or not otp_code:
-        raise HTTPException(status_code=400, detail="Missing otp_session_id or otp_code")
-    
-    otp_session = db.query(OtpSession).filter(OtpSession.id == otp_session_id).first()
-    
-    if not otp_session:
-        raise HTTPException(status_code=400, detail="Invalid OTP session")
-    
-    if otp_session.used:
-        raise HTTPException(status_code=400, detail="OTP already used")
-    
-    if datetime.utcnow() > otp_session.expires_at:
-        raise HTTPException(status_code=400, detail="OTP expired")
-    
-    if otp_session.otp_code != otp_code:
-        raise HTTPException(status_code=400, detail="Invalid OTP code")
-    
-    # Mark OTP as used
-    otp_session.used = True
-    db.commit()
-    
-    # Get user and generate JWT
-    user = db.query(User).filter(User.id == otp_session.user_id).first()
-    if not user:
-        raise HTTPException(status_code=400, detail="User not found")
-    
-    access_token = create_access_token(user.id)
+async def verify_otp(_: Request, __: Session = Depends(get_db)):
+    raise HTTPException(status_code=410, detail="OTP flow is handled by Supabase Auth now")
 
-    event = Event(
-        user_id=user.id,
-        action="otp_verified",
-        ip_address=request.client.host if request.client else "127.0.0.1",
-        user_agent=request.headers.get("user-agent", "unknown"),
-        trust_score_at_time=user.trust_score,
-        metadata_json=json.dumps({"otp_session_id": otp_session.id}),
+
+@router.post("/sync")
+async def sync_trust(request: Request, payload: TrustSyncRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    data = payload.behavioral or {}
+    behavioral = _behavioral_payload_from_dict(data)
+    ip_address = payload.ip_address or _extract_ip(request, {"ip_address": payload.ip_address} if payload.ip_address else {})
+    user_agent = payload.user_agent or _extract_user_agent(request, {"user_agent": payload.user_agent} if payload.user_agent else {})
+    current_user_obj = cast(Any, current_user)
+    email = str(current_user_obj.email)
+
+    if payload.event_type == "register":
+        hour_ago = datetime.utcnow() - timedelta(hours=1)
+        minute_ago = datetime.utcnow() - timedelta(minutes=1)
+        reg_count, same_ua_count = _get_registration_counts(db, ip_address=ip_address, user_agent=user_agent, since=hour_ago)
+        registrations_per_minute = db.query(Event).filter(Event.action == "register", Event.timestamp >= minute_ago).count()
+
+        score_result = score_registration(
+            email=email,
+            behavioral=behavioral,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            registrations_from_ip_last_hour=reg_count,
+            accounts_with_same_ua_today=same_ua_count,
+            ml_anomaly_score=None,
+            registrations_per_minute=registrations_per_minute,
+        )
+
+        user = _ensure_user_row(
+            db,
+            user_id=str(current_user_obj.id),
+            email=email,
+            trust_score=score_result.trust_score,
+            status="quarantined" if score_result.trust_score < 40 else "active",
+            last_ip=ip_address,
+            behavioral=behavioral,
+            ml_anomaly_score=score_result.ml_anomaly_score,
+            triggered_flags=score_result.triggered_rules,
+        )
+        user_obj = cast(Any, user)
+        db.add(
+            Event(
+                user_id=str(user_obj.id),
+                action="register",
+                ip_address=ip_address,
+                country=payload.country or get_country(ip_address),
+                user_agent=user_agent,
+                trust_score_at_time=score_result.trust_score,
+                metadata_json={
+                    "triggered_rules": score_result.triggered_rules,
+                    "rule_penalty": score_result.rule_penalty,
+                    "behavioral_penalty": score_result.behavioral_penalty,
+                    "ml_penalty": score_result.ml_penalty,
+                    "ml_anomaly_score": score_result.ml_anomaly_score,
+                    "recommendation": score_result.recommendation,
+                },
+            )
+        )
+        _create_alerts(db, str(user_obj.id), email, score_result.triggered_rules)
+        _create_ml_alert(db, str(user_obj.id), email, score_result.ml_anomaly_score)
+        db.commit()
+        db.refresh(user)
+        return {
+            "user_id": str(user_obj.id),
+            "trust_score": score_result.trust_score,
+            "status": user_obj.status,
+            "recommendation": score_result.recommendation,
+        }
+
+    previous_login_event = (
+        db.query(Event)
+        .filter(Event.user_id == str(current_user_obj.id), Event.action == "login")
+        .order_by(Event.timestamp.desc())
+        .first()
     )
-    db.add(event)
+    last_country: Optional[str] = None
+    if previous_login_event is not None:
+        last_country = cast(Optional[str], previous_login_event.country)
+
+    minutes_since_last_login = None
+    if previous_login_event is not None and previous_login_event.timestamp is not None:
+        minutes_since_last_login = (datetime.utcnow() - previous_login_event.timestamp).total_seconds() / 60.0
+
+    score_result = score_login(
+        user_id=str(current_user_obj.id),
+        existing_trust_score=int(current_user_obj.trust_score),
+        ip_address=ip_address,
+        current_country=payload.country or get_country(ip_address),
+        last_country=last_country,
+        minutes_since_last_login=minutes_since_last_login,
+    )
+
+    current_user_obj.trust_score = score_result.trust_score
+    current_user_obj.status = "blocked" if score_result.trust_score < 20 else "quarantined" if score_result.trust_score < 40 else "active"
+    current_user_obj.last_login_at = datetime.utcnow()
+    current_user_obj.last_ip = ip_address
+    current_user_obj.typing_variance_ms = behavioral.typing_variance_ms
+    current_user_obj.time_to_complete_sec = behavioral.time_to_complete_sec
+    current_user_obj.mouse_move_count = behavioral.mouse_move_count
+    current_user_obj.keypress_count = behavioral.keypress_count
+    current_user_obj.ml_anomaly_score = score_result.ml_anomaly_score
+    current_user_obj.triggered_flags = score_result.triggered_rules
+
+    db.add(
+        Event(
+            user_id=str(current_user_obj.id),
+            action="login",
+            ip_address=ip_address,
+            country=payload.country or get_country(ip_address),
+            user_agent=user_agent,
+            trust_score_at_time=score_result.trust_score,
+            metadata_json={
+                "rule_penalty": score_result.rule_penalty,
+                "behavioral_penalty": score_result.behavioral_penalty,
+                "ml_penalty": score_result.ml_penalty,
+                "ml_anomaly_score": score_result.ml_anomaly_score,
+                "recommendation": score_result.recommendation,
+            },
+        )
+    )
+    _create_alerts(db, str(current_user_obj.id), email, score_result.triggered_rules)
+    _create_ml_alert(db, str(current_user_obj.id), email, score_result.ml_anomaly_score)
     db.commit()
-    
+
     return {
-        "token": access_token,
-        "token_type": "bearer",
-        "user_id": user.id,
-        "message": "Login successful"
+        "user_id": str(current_user_obj.id),
+        "trust_score": score_result.trust_score,
+        "status": current_user_obj.status,
+        "recommendation": score_result.recommendation,
     }
