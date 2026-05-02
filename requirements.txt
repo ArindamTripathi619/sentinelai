@@ -7,7 +7,7 @@ uvicorn[standard]
 # Database
 sqlalchemy
 aiosqlite
-psycopg[binary]
+psycopg2-binary
 
 # Auth & Security
 python-jose[cryptography]
