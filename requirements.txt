@@ -7,6 +7,7 @@ uvicorn[standard]
 # Database
 sqlalchemy
 aiosqlite
+psycopg[binary]
 
 # Auth & Security
 python-jose[cryptography]
@@ -26,11 +27,6 @@ httpx
 requests
 
 # Environment loading
-python-dotenv
-
-# Email / OTP
-
-# Environment
 python-dotenv
 
 # Utilities

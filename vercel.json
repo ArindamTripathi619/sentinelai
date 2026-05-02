@@ -2,7 +2,6 @@
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "pip install --break-system-packages -r requirements.txt",
   "routes": [
     {
       "src": "/api/(.*)",
