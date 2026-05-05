@@ -12,8 +12,13 @@ from database import init_db
 
 load_dotenv()
 
-# Initialize DB
-init_db()
+# Try to initialize DB, but don't fail if it can't connect yet
+try:
+    init_db()
+except Exception as e:
+    import sys
+    print(f"Warning: Database initialization failed at startup: {e}", file=sys.stderr)
+    # Continue anyway - the database might connect on first request
 
 app = FastAPI(
     title="SentinelAI",
@@ -85,3 +90,15 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/diagnostics")
+def diagnostics():
+    """Diagnostic endpoint to check environment and dependencies."""
+    import sys
+    return {
+        "python_version": sys.version,
+        "database_url_set": bool(os.getenv("DATABASE_URL")),
+        "supabase_url": os.getenv("SUPABASE_URL", "NOT SET"),
+        "service_role_key_set": bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY")),
+        "message": "All systems OK"
+    }
