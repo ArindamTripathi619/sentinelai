@@ -7,9 +7,21 @@ from database import get_db
 from models import User
 from auth import get_current_user
 from scorer import BehavioralPayload, score_login, score_registration
-from ml_model import build_feature_vector, predict, get_model
+
+# Try to import ML model, but make it optional for Vercel deployment
+_ML_AVAILABLE = False
+try:
+    from ml_model import build_feature_vector, predict, get_model
+    _ML_AVAILABLE = True
+except ImportError:
+    # ML dependencies not available (e.g., on Vercel)
+    pass
 
 router = APIRouter()
+def _ml_score_fallback() -> float:
+    """Fallback ML score when sklearn/numpy are not available."""
+    return 0.5
+
 
 
 class ScoringRequest(BaseModel):
@@ -37,6 +49,9 @@ def _behavioral_payload(data: dict) -> BehavioralPayload:
 
 
 def _ml_score(req: ScoringRequest) -> float:
+    if not _ML_AVAILABLE:
+        return _ml_score_fallback()
+    
     behavioral = req.behavioral or {}
     feature_vector = build_feature_vector(
         float(behavioral.get("typing_variance_ms", 150)),

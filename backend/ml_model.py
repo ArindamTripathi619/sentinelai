@@ -4,8 +4,18 @@
 # Train with: python ml_model.py --train
 # Predict with: load the saved model and call predict()
 
-import numpy as np
-import joblib
+try:
+    import numpy as np
+    import joblib
+    from sklearn.ensemble import IsolationForest
+    _ML_AVAILABLE = True
+except ImportError:
+    # ML dependencies not available - using stub functions
+    _ML_AVAILABLE = False
+    np = None
+    joblib = None
+    IsolationForest = None
+
 import os
 import argparse
 from pathlib import Path
@@ -23,6 +33,29 @@ FEATURE_NAMES = [
     "session_actions_per_min",
 ]
 
+# Stub implementations for when ML is unavailable
+def _stub_build_feature_vector(
+    typing_variance_ms: float,
+    time_to_complete_sec: float,
+    mouse_move_count: int,
+    registrations_from_ip_1h: int,
+    email_pattern_score: float,
+    keypress_count: int,
+    session_actions_per_min: float,
+):
+    """Stub that returns a placeholder when numpy is not available."""
+    return None
+
+
+def _stub_predict(feature_vector, model=None) -> float:
+    """Stub that returns neutral score when sklearn is not available."""
+    return 0.5
+
+
+def _stub_get_model():
+    """Stub that returns None when model cannot be loaded."""
+    return None
+
 
 def build_feature_vector(
     typing_variance_ms: float,
@@ -32,10 +65,17 @@ def build_feature_vector(
     email_pattern_score: float,
     keypress_count: int,
     session_actions_per_min: float,
-) -> np.ndarray:
+) -> any:
     """
     Build a numpy feature vector in the correct order for the model.
     Call this before calling predict().
+        if not _ML_AVAILABLE:
+            return _stub_build_feature_vector(
+                typing_variance_ms, time_to_complete_sec, mouse_move_count,
+                registrations_from_ip_1h, email_pattern_score, keypress_count,
+                session_actions_per_min
+            )
+    +
     """
     return np.array([[
         typing_variance_ms,
@@ -83,6 +123,9 @@ def train(training_data_path: str = "../scripts/training_data.csv"):
 
 def load_model():
     """Load the saved model. Returns None if model file doesn't exist yet."""
+        if not _ML_AVAILABLE:
+            return None
+
     if not Path(MODEL_PATH).exists():
         print(f"Warning: model file not found at {MODEL_PATH}. Run --train first.")
         return None
@@ -93,6 +136,9 @@ def predict(feature_vector: np.ndarray, model=None) -> float:
     """
     Predict anomaly score for a single feature vector.
     Returns a score in [-1, 0]:
+        if not _ML_AVAILABLE:
+            return _stub_predict(feature_vector, model)
+
       - Close to 0   → normal behavior
       - Close to -1  → strong anomaly
 
@@ -116,6 +162,9 @@ _model = None
 
 def get_model():
     global _model
+        if not _ML_AVAILABLE:
+            return _stub_get_model()
+
     if _model is None:
         _model = load_model()
     return _model

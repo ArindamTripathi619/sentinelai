@@ -17,10 +17,10 @@ python-multipart
 slowapi
 
 # ML
-scikit-learn==1.5.0
-numpy==1.26.4
-pandas==2.2.1
-joblib==1.3.2
+# scikit-learn==1.5.0  # Commented for faster Vercel builds
+# numpy==1.26.4       # Commented for faster Vercel builds
+# pandas==2.2.1       # Commented for faster Vercel builds
+# joblib==1.3.2       # Commented for faster Vercel builds
 
 # HTTP (for geo API calls + scripts)
 httpx
