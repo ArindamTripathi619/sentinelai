@@ -2,7 +2,7 @@ services:
   - type: web
     name: sentinelai-backend
     env: docker
-    repo: "<github-owner>/<repo>" # replace with your GitHub repo, e.g. ArindamTripathi619/sentinelai
+    repo: ArindamTripathi619/sentinelai
     branch: main
     dockerfilePath: backend/Dockerfile
     plan: free

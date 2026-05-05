@@ -3,39 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
 from dotenv import load_dotenv
-import sys
-
-print("DEBUG: Loading environment", file=sys.stderr)
-load_dotenv()
-
-# Check for required env vars (these should be set by Vercel)
-db_url = os.getenv('DATABASE_URL')
-print(f"DEBUG: DATABASE_URL={'SET' if db_url else 'NOT SET (using SQLite fallback)'}", file=sys.stderr)
-print(f"DEBUG: SUPABASE_URL={'SET' if os.getenv('SUPABASE_URL') else 'NOT SET'}", file=sys.stderr)
-print(f"DEBUG: SUPABASE_SERVICE_ROLE_KEY={'SET' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'NOT SET'}", file=sys.stderr)
-
-print("DEBUG: Importing auth module", file=sys.stderr)
 import auth
-print("DEBUG: Importing users module", file=sys.stderr)
 import users
-print("DEBUG: Importing alerts module", file=sys.stderr)
 import alerts
-print("DEBUG: Importing analytics module", file=sys.stderr)
 import analytics
-print("DEBUG: Importing scoring module", file=sys.stderr)
 import scoring
-print("DEBUG: Importing database module", file=sys.stderr)
 from database import init_db
 
-# Try to initialize DB, but don't fail if it can't connect yet
-print("DEBUG: Initializing database", file=sys.stderr)
-try:
-    init_db()
-    print("DEBUG: Database initialized successfully", file=sys.stderr)
-except Exception as e:
-    print(f"WARNING: Database initialization failed: {e}", file=sys.stderr)
-    import traceback
-    traceback.print_exc(file=sys.stderr)
+load_dotenv()
+
+# Initialize DB
+init_db()
 
 app = FastAPI(
     title="SentinelAI",
@@ -107,15 +85,3 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-@app.get("/diagnostics")
-def diagnostics():
-    """Diagnostic endpoint to check environment and dependencies."""
-    import sys
-    return {
-        "python_version": sys.version,
-        "database_url_set": bool(os.getenv("DATABASE_URL")),
-        "supabase_url": os.getenv("SUPABASE_URL", "NOT SET"),
-        "service_role_key_set": bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY")),
-        "message": "All systems OK"
-    }
