@@ -1,26 +1,42 @@
 """
-Vercel serverless function entry point for SentinelAI backend.
-Imports FastAPI app from backend/main.py and exposes it for Vercel's Python runtime.
+Vercel serverless entry point - imports and returns FastAPI app.
+Falls back to a minimal app if imports fail, returning errors as JSON.
 """
 import sys
 import os
+import json
 
-# Add backend directory to path so modules can be imported
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
-try:
-    # Try to import the real app first
-    from main import app
-    print("Loaded main.py app", file=sys.stderr)
-except Exception as e:
-    # Fall back to minimal app if main.py fails to import
-    print(f"WARNING: Failed to import main.py, loading minimal app: {e}", file=sys.stderr)
-    import traceback
-    traceback.print_exc(file=sys.stderr)
-    from minimal_app import app
-    print("Loaded minimal_app.py", file=sys.stderr)
+app_init_error = None
 
-# Export app for Vercel ASGI
+try:
+    from main import app
+except Exception as e:
+    app_init_error = str(e)
+    import traceback
+    error_trace = traceback.format_exc()
+    print(f"FAILED TO IMPORT MAIN: {error_trace}", file=sys.stderr)
+    
+    # If main fails, try minimal app
+    try:
+        from minimal_app import app
+    except Exception as e2:
+        # Both failed - create emergency app
+        from fastapi import FastAPI
+        app = FastAPI()
+        
+        @app.get("/{path_name:path}")
+        @app.post("/{path_name:path}")
+        @app.put("/{path_name:path}")
+        @app.delete("/{path_name:path}")
+        async def catch_all(path_name: str):
+            return {
+                "error": "App initialization failed",
+                "main_error": app_init_error,
+                "fallback_error": str(e2),
+            }
+
 __all__ = ['app']
 
 
