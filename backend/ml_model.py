@@ -69,14 +69,14 @@ def build_feature_vector(
     """
     Build a numpy feature vector in the correct order for the model.
     Call this before calling predict().
-        if not _ML_AVAILABLE:
-            return _stub_build_feature_vector(
-                typing_variance_ms, time_to_complete_sec, mouse_move_count,
-                registrations_from_ip_1h, email_pattern_score, keypress_count,
-                session_actions_per_min
-            )
-    +
     """
+    if not _ML_AVAILABLE:
+        return _stub_build_feature_vector(
+            typing_variance_ms, time_to_complete_sec, mouse_move_count,
+            registrations_from_ip_1h, email_pattern_score, keypress_count,
+            session_actions_per_min
+        )
+    
     return np.array([[
         typing_variance_ms,
         time_to_complete_sec,
@@ -123,8 +123,8 @@ def train(training_data_path: str = "../scripts/training_data.csv"):
 
 def load_model():
     """Load the saved model. Returns None if model file doesn't exist yet."""
-        if not _ML_AVAILABLE:
-            return None
+    if not _ML_AVAILABLE:
+        return None
 
     if not Path(MODEL_PATH).exists():
         print(f"Warning: model file not found at {MODEL_PATH}. Run --train first.")
@@ -136,14 +136,14 @@ def predict(feature_vector: np.ndarray, model=None) -> float:
     """
     Predict anomaly score for a single feature vector.
     Returns a score in [-1, 0]:
-        if not _ML_AVAILABLE:
-            return _stub_predict(feature_vector, model)
-
       - Close to 0   → normal behavior
       - Close to -1  → strong anomaly
 
     Returns 0.0 (neutral) if model is not loaded.
     """
+    if not _ML_AVAILABLE:
+        return _stub_predict(feature_vector, model)
+    
     if model is None:
         model = load_model()
     if model is None:
@@ -162,8 +162,8 @@ _model = None
 
 def get_model():
     global _model
-        if not _ML_AVAILABLE:
-            return _stub_get_model()
+    if not _ML_AVAILABLE:
+        return _stub_get_model()
 
     if _model is None:
         _model = load_model()
