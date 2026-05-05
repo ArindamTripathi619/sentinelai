@@ -4,20 +4,20 @@
   "outputDirectory": "frontend/dist",
   "routes": [
     {
-      "src": "/api(.*)",
-      "dest": "/api/index.py"
+      "src": "/api/(.*)",
+      "dest": "/api"
     },
     {
       "src": "/docs",
-      "dest": "/api/index.py"
+      "dest": "/api"
     },
     {
       "src": "/openapi.json",
-      "dest": "/api/index.py"
+      "dest": "/api"
     },
     {
       "src": "/redoc",
-      "dest": "/api/index.py"
+      "dest": "/api"
     },
     {
       "src": "/assets/(.*)",
