@@ -8,7 +8,11 @@ import sys
 print("DEBUG: Loading environment", file=sys.stderr)
 load_dotenv()
 
-print(f"DEBUG: DATABASE_URL={'SET' if os.getenv('DATABASE_URL') else 'NOT SET'}", file=sys.stderr)
+# Check for required env vars (these should be set by Vercel)
+db_url = os.getenv('DATABASE_URL')
+print(f"DEBUG: DATABASE_URL={'SET' if db_url else 'NOT SET (using SQLite fallback)'}", file=sys.stderr)
+print(f"DEBUG: SUPABASE_URL={'SET' if os.getenv('SUPABASE_URL') else 'NOT SET'}", file=sys.stderr)
+print(f"DEBUG: SUPABASE_SERVICE_ROLE_KEY={'SET' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'NOT SET'}", file=sys.stderr)
 
 print("DEBUG: Importing auth module", file=sys.stderr)
 import auth
