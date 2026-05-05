@@ -3,22 +3,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
 from dotenv import load_dotenv
-import auth
-import users
-import alerts
-import analytics
-import scoring
-from database import init_db
+import sys
 
+print("DEBUG: Loading environment", file=sys.stderr)
 load_dotenv()
 
+print(f"DEBUG: DATABASE_URL={'SET' if os.getenv('DATABASE_URL') else 'NOT SET'}", file=sys.stderr)
+
+print("DEBUG: Importing auth module", file=sys.stderr)
+import auth
+print("DEBUG: Importing users module", file=sys.stderr)
+import users
+print("DEBUG: Importing alerts module", file=sys.stderr)
+import alerts
+print("DEBUG: Importing analytics module", file=sys.stderr)
+import analytics
+print("DEBUG: Importing scoring module", file=sys.stderr)
+import scoring
+print("DEBUG: Importing database module", file=sys.stderr)
+from database import init_db
+
 # Try to initialize DB, but don't fail if it can't connect yet
+print("DEBUG: Initializing database", file=sys.stderr)
 try:
     init_db()
+    print("DEBUG: Database initialized successfully", file=sys.stderr)
 except Exception as e:
-    import sys
-    print(f"Warning: Database initialization failed at startup: {e}", file=sys.stderr)
-    # Continue anyway - the database might connect on first request
+    print(f"WARNING: Database initialization failed: {e}", file=sys.stderr)
+    import traceback
+    traceback.print_exc(file=sys.stderr)
 
 app = FastAPI(
     title="SentinelAI",
