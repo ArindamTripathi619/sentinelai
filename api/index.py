@@ -7,11 +7,11 @@ app = FastAPI()
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "message": "Backend is running"}
+    return {"status": "ok"}
 
 @app.get("/api/")
 async def root():
-    return {"message": "SentinelAI API"}
+    return {"message": "SentinelAI"}
 
 
 
