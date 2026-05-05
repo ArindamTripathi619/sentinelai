@@ -2,22 +2,28 @@
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30,
+      "memory": 256
+    }
+  },
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "api/index.py"
+      "src": "/api(.*)",
+      "dest": "/api/index.py"
     },
     {
       "src": "/docs",
-      "dest": "api/index.py"
+      "dest": "/api/index.py"
     },
     {
       "src": "/openapi.json",
-      "dest": "api/index.py"
+      "dest": "/api/index.py"
     },
     {
       "src": "/redoc",
-      "dest": "api/index.py"
+      "dest": "/api/index.py"
     },
     {
       "src": "/assets/(.*)",
