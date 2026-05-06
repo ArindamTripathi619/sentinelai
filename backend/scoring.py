@@ -8,13 +8,13 @@ from models import User
 from auth import get_current_user
 from scorer import BehavioralPayload, score_login, score_registration
 
-# Try to import ML model, but make it optional for Vercel deployment
+# Try to import ML model, but make it optional for Render deployment
 _ML_AVAILABLE = False
 try:
     from ml_model import build_feature_vector, predict, get_model
     _ML_AVAILABLE = True
 except ImportError:
-    # ML dependencies not available (e.g., on Vercel)
+    # ML dependencies not available in this deployment target
     pass
 
 router = APIRouter()

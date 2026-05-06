@@ -51,5 +51,4 @@ htmlcov/
 
 # Docs
 docs/PLAN.md
-.vercel
 .env*.local
