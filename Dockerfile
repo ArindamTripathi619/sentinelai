@@ -7,7 +7,7 @@ RUN npm run build
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
-WORKDIR /app
+WORKDIR /app/backend
 
 # Install backend runtime dependencies.
 COPY requirements.txt /app/requirements.txt
@@ -17,6 +17,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY backend /app/backend
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/backend
 EXPOSE 10000
-CMD ["sh", "-lc", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-10000} --proxy-headers"]
+CMD ["sh", "-lc", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} --proxy-headers"]
