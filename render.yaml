@@ -6,4 +6,4 @@ services:
     branch: main
     dockerfilePath: backend/Dockerfile
     plan: free
-    healthCheckPath: /api/health
+    healthCheckPath: /health
