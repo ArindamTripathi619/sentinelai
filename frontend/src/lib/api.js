@@ -1,9 +1,7 @@
 import axios from 'axios'
 import { supabase } from './supabase'
 
-const isVercelHost = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')
-const renderApiBase = 'https://sentinelai-e1zs.onrender.com/api'
-const baseURL = import.meta.env.VITE_API_BASE_URL || (isVercelHost ? renderApiBase : '/api')
+const baseURL = '/api'
 
 export const api = axios.create({
   baseURL,

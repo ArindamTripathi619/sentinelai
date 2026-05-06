@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import os
 from dotenv import load_dotenv
+from fastapi.responses import FileResponse
+from pathlib import Path
 import auth
 import users
 import alerts
@@ -68,8 +70,13 @@ app.include_router(alerts.router, prefix="/api/alerts", tags=["Alerts"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(scoring.router, prefix="/api/score", tags=["Scoring"])
 
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+
 @app.get("/")
 def root():
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
     return {
         "service": "SentinelAI",
         "status": "running",
@@ -79,3 +86,14 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/{path_name:path}")
+def spa_fallback(path_name: str):
+    if path_name.startswith("api/") or path_name == "api":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+
+    raise HTTPException(status_code=404, detail="Not Found")
