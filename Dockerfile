@@ -1,9 +1,11 @@
 FROM node:20-alpine AS frontend-build
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ ./
-RUN npm run build
+RUN VITE_SUPABASE_URL=${VITE_SUPABASE_URL} VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY} npm run build
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1

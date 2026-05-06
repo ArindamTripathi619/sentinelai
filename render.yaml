@@ -7,6 +7,9 @@ services:
     dockerfilePath: Dockerfile
     plan: free
     healthCheckPath: /health
+    buildArgs:
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
     envVars:
       - key: DATABASE_URL
         sync: false
