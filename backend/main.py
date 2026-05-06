@@ -48,7 +48,7 @@ extra_allowed_hosts = [
 ]
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.localhost", "*.vercel.app", *extra_allowed_hosts],
+    allowed_hosts=["localhost", "127.0.0.1", "*.localhost", "*.vercel.app", "*.onrender.com", *extra_allowed_hosts],
 )
 
 # --- CORS ---
