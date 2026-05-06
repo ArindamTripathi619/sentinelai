@@ -8,12 +8,8 @@ import users
 import alerts
 import analytics
 import scoring
-from database import init_db
 
 load_dotenv()
-
-# Initialize DB
-init_db()
 
 app = FastAPI(
     title="SentinelAI",
@@ -21,10 +17,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-from database import engine
 import models
-
-models.Base.metadata.create_all(bind=engine)
 
 # --- Security Headers Middleware ---
 from starlette.middleware.base import BaseHTTPMiddleware
