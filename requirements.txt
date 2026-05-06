@@ -35,3 +35,8 @@ python-dotenv
 pydantic
 pydantic-settings
 pytz
+
+# Logging & Monitoring
+python-json-logger
+prometheus-client
+sentry-sdk

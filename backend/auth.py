@@ -11,6 +11,9 @@ import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from logging_config import get_logger
+from error_codes import ErrorCode
+from monitoring import metrics, record_auth_event, record_security_rule
 
 # JWT imports
 from jose import JWTError, jwt
@@ -23,6 +26,7 @@ from slowapi.util import get_remote_address
 
 load_dotenv()
 
+logger = get_logger(__name__)
 router = APIRouter()
 
 # Rate limiter for brute force protection
