@@ -4,6 +4,8 @@
 # Train with: python ml_model.py --train
 # Predict with: load the saved model and call predict()
 
+from __future__ import annotations
+
 try:
     import numpy as np
     import joblib
