@@ -26,6 +26,12 @@ elif "sslmode" not in DATABASE_URL:
     separator = "&" if "?" in DATABASE_URL else "?"
     DATABASE_URL = f"{DATABASE_URL}{separator}sslmode=require"
 
+# Add connection parameters to improve Render.com compatibility
+if "postgresql" in DATABASE_URL:
+    separator = "&" if "?" in DATABASE_URL else "?"
+    if "keepalives" not in DATABASE_URL:
+        DATABASE_URL = f"{DATABASE_URL}{separator}keepalives=1&keepalives_idle=30&connect_timeout=10"
+
 print(f"[DATABASE] Using: {DATABASE_URL[:50]}...", file=__import__('sys').stderr)
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
