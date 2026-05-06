@@ -30,13 +30,18 @@ export default function Login() {
 
       if (data.session) {
         const behavioralData = getBehavioralPayload();
-        await api.post('/sync', {
-          event_type: 'login',
-          behavioral: behavioralData,
-          ip_address: '127.0.0.1',
-          user_agent: navigator.userAgent,
-          country: 'US',
-        });
+        try {
+          await api.post('/sync', {
+            event_type: 'login',
+            behavioral: behavioralData,
+            ip_address: '127.0.0.1',
+            user_agent: navigator.userAgent,
+            country: 'US',
+          });
+        } catch (syncErr) {
+          // Do not block successful auth on trust-sync/network issues.
+          console.warn('Trust sync failed after login:', syncErr);
+        }
         navigate('/dashboard', { replace: true });
       } else {
         setError('Check your email to confirm your account, then sign in again.');

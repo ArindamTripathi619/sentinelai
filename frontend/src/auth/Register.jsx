@@ -39,13 +39,18 @@ export default function Register() {
 
       if (data.session) {
         const behavioralData = getBehavioralPayload();
-        await api.post('/sync', {
-          event_type: 'register',
-          behavioral: behavioralData,
-          ip_address: '127.0.0.1',
-          user_agent: navigator.userAgent,
-          country: 'US',
-        });
+        try {
+          await api.post('/sync', {
+            event_type: 'register',
+            behavioral: behavioralData,
+            ip_address: '127.0.0.1',
+            user_agent: navigator.userAgent,
+            country: 'US',
+          });
+        } catch (syncErr) {
+          // Do not block successful auth on trust-sync/network issues.
+          console.warn('Trust sync failed after register:', syncErr);
+        }
         navigate('/dashboard', { replace: true });
         return;
       }
@@ -53,7 +58,30 @@ export default function Register() {
       setSuccess('Registration successful. Check your email to confirm your account, then sign in.');
       setTimeout(() => navigate('/login', { replace: true }), 1500);
     } catch (err) {
-      setError(err?.message || err?.response?.data?.detail || 'Registration failed');
+      const message = err?.message || err?.response?.data?.detail || 'Registration failed';
+      const isAlreadyRegistered = /already registered|already exists|user already/i.test(String(message));
+
+      if (isAlreadyRegistered) {
+        try {
+          const { error: resendError } = await supabase.auth.resend({
+            type: 'signup',
+            email,
+            options: {
+              emailRedirectTo: `${window.location.origin}/login`,
+            },
+          });
+
+          if (!resendError) {
+            setSuccess('This email is already registered. A fresh confirmation link has been sent.');
+            setError('');
+            return;
+          }
+        } catch (resendErr) {
+          console.warn('Resend confirmation failed:', resendErr);
+        }
+      }
+
+      setError(message);
     } finally {
       setIsLoading(false);
     }
