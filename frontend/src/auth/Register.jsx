@@ -14,6 +14,7 @@ export default function Register() {
   const [success, setSuccess] = useState('');
   const navigate = useNavigate();
   const getBehavioralPayload = useBehavioral();
+  const appBaseUrl = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -26,6 +27,7 @@ export default function Register() {
         email,
         password,
         options: {
+          emailRedirectTo: `${appBaseUrl}/login`,
           data: {
             full_name: name,
           },

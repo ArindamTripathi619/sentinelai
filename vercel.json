@@ -49,7 +49,7 @@
     "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}",
     "VITE_SUPABASE_URL": "${VITE_SUPABASE_URL}",
     "VITE_SUPABASE_ANON_KEY": "${VITE_SUPABASE_ANON_KEY}",
-    "VITE_API_BASE_URL": "https://sentinelai-e1zs.onrender.com",
+    "VITE_API_BASE_URL": "https://sentinelai-e1zs.onrender.com/api",
     "APP_NAME": "SentinelAI",
     "LOG_LEVEL": "INFO"
   }
