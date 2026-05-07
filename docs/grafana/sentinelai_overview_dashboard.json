@@ -1,0 +1,74 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "sentinelai-overview",
+    "title": "SentinelAI - Overview",
+    "tags": ["sentinelai","overview","security"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "panels": [
+      {
+        "type": "timeseries",
+        "title": "API Request Rate (RPS)",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "rate(sentinelai_api_requests_total[1m])",
+            "legendFormat": "{{method}} {{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "type": "timeseries",
+        "title": "API Errors (per endpoint)",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 6 },
+        "targets": [
+          { "expr": "sum by (endpoint, error_code) (rate(sentinelai_api_errors_total[1m]))", "refId": "A" }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "type": "timeseries",
+        "title": "Security Alerts Created",
+        "gridPos": { "x": 0, "y": 6, "w": 12, "h": 6 },
+        "targets": [
+          { "expr": "sum by (alert_type) (rate(sentinelai_security_alerts_created_total[1m]))", "refId": "A" }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "type": "stat",
+        "title": "Average Trust Score",
+        "gridPos": { "x": 12, "y": 6, "w": 6, "h": 3 },
+        "targets": [
+          { "expr": "sentinelai_trust_score_average", "refId": "A" }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "type": "timeseries",
+        "title": "Registrations per Minute",
+        "gridPos": { "x": 18, "y": 6, "w": 6, "h": 3 },
+        "targets": [
+          { "expr": "rate(sentinelai_auth_registration_total[1m])", "refId": "A" }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "type": "table",
+        "title": "Top Rule Triggers",
+        "gridPos": { "x": 0, "y": 12, "w": 24, "h": 6 },
+        "targets": [
+          { "expr": "sum by (rule_name) (rate(sentinelai_security_rules_triggered_total[5m]))", "refId": "A" }
+        ],
+        "datasource": "Prometheus"
+      }
+    ],
+    "templating": { "list": [] },
+    "annotations": { "list": [] }
+  },
+  "overwrite": false
+}

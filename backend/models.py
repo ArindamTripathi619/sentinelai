@@ -1,6 +1,6 @@
 # SentinelAI — Database Models
 # Owner: Atul
-# Define all SQLite tables here using SQLAlchemy
+# Define DB tables here using SQLAlchemy (works with SQLite or PostgreSQL)
 
 from sqlalchemy import (
     Column, String, Integer, Boolean, DateTime, Text, Float

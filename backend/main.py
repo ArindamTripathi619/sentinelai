@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 import time
 import logging
 import auth
@@ -18,7 +19,9 @@ from error_codes import APIError, ValidationError, InternalError
 from monitoring import metrics, record_request_timing, record_error
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-load_dotenv()
+ROOT = Path(__file__).resolve().parents[1]
+# Load the canonical project `.env` at the repository root
+load_dotenv(ROOT / '.env')
 
 # Setup structured logging
 setup_logging()
@@ -65,6 +68,14 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
             duration=duration,
             status_code=response.status_code
         )
+        # Record API errors for non-exception responses (4xx/5xx)
+        try:
+            if getattr(response, 'status_code', 0) >= 400:
+                # use status code as error_code label
+                record_error(endpoint=request.url.path, error_code=str(response.status_code))
+        except Exception:
+            # Metric recording must not interrupt response
+            logger.debug('Failed to record api error metric for %s', request.url.path)
         return response
 
 

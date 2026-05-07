@@ -180,8 +180,8 @@ POST /api/register or /api/login
   trust_score = 100 - rule_penalty - behavioral_penalty - ml_penalty
   Determines: action (login / OTP / quarantine)
       │
-      ├──▶ [Event Logger] → SQLite events table
-      ├──▶ [Alert Writer] → SQLite alerts table (if rules fired)
+    ├──▶ [Event Logger] → PostgreSQL events table (or local Postgres during dev)
+    ├──▶ [Alert Writer] → PostgreSQL alerts table (if rules fired)
       └──▶ [API Response] → Frontend
 ```
 

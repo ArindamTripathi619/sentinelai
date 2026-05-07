@@ -11,9 +11,10 @@ import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from pathlib import Path
 from logging_config import get_logger
 from error_codes import ErrorCode
-from monitoring import metrics, record_auth_event, record_security_rule
+from monitoring import metrics, record_auth_event, record_security_rule, record_alert
 
 # JWT imports
 from jose import JWTError, jwt
@@ -23,8 +24,11 @@ import base64
 import hmac
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from starlette.requests import ClientDisconnect
 
-load_dotenv()
+ROOT = Path(__file__).resolve().parents[1]
+# Load the canonical project `.env` at the repository root
+load_dotenv(ROOT / '.env')
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -120,6 +124,13 @@ def _create_alerts(db: Session, user_id: str, email: str, triggered_rules: list[
                 affected_user_ids=user_id,
             )
         )
+        try:
+            # increment Prometheus metrics for rule and alert
+            record_security_rule(rule)
+            record_alert(alert_type)
+        except Exception:
+            # Metric recording must never break the main flow
+            logger.debug("Failed to record monitoring metric for alert/rule")
 
 
 def _create_ml_alert(db: Session, user_id: str, email: str, ml_anomaly_score: Optional[float]) -> None:
@@ -158,6 +169,18 @@ def _extract_ip(request: Request, payload: dict) -> str:
 def _extract_user_agent(request: Request, payload: dict) -> str:
     """Prefer real HTTP User-Agent header, then payload fallback for scripted tests."""
     return request.headers.get("user-agent") or payload.get("user_agent") or "unknown"
+
+
+async def _safe_read_json(request: Request) -> dict:
+    """Read JSON body but handle client disconnects and invalid JSON gracefully."""
+    try:
+        return await request.json()
+    except ClientDisconnect:
+        logger.debug("Client disconnected while sending request body for %s", request.url.path)
+        raise HTTPException(status_code=400, detail="Client disconnected while sending body")
+    except Exception:
+        logger.debug("Failed to parse JSON body for %s", request.url.path)
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
 
 
 def create_access_token(user_id: str, expires_delta: timedelta = None) -> str:
@@ -240,16 +263,24 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
 @limiter.limit("5/minute")  # Max 5 registration attempts per IP per minute
 @router.post("/register")
 async def register(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
+    data = await _safe_read_json(request)
     email = data.get("email")
     password = data.get("password")
     if not email or not password:
+        try:
+            record_auth_event('registration', 'failed')
+        except Exception:
+            logger.debug('Failed to record registration missing-fields metric')
         raise HTTPException(status_code=400, detail="Missing email or password")
     
     # Check if user exists - don't reveal this to prevent user enumeration
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
         # Log this attempt but return generic error
+        try:
+            record_auth_event('registration', 'failed')
+        except Exception:
+            logger.debug('Failed to record registration failed metric')
         raise HTTPException(status_code=400, detail="Registration failed. Please try again or contact support.")
     
     # Parse behavioral payload
@@ -332,7 +363,12 @@ async def register(request: Request, db: Session = Depends(get_db)):
     _create_ml_alert(db, new_user.id, email, score_result.ml_anomaly_score)
         
     db.commit()
-    
+    try:
+        # Record registration metric (status: active/quarantined)
+        record_auth_event('registration', new_user.status)
+    except Exception:
+        logger.debug('Failed to record registration metric')
+
     return {
         "message": "Registration successful",
         "trust_score": score_result.trust_score,
@@ -348,11 +384,15 @@ async def register(request: Request, db: Session = Depends(get_db)):
 @limiter.limit("10/minute")  # Max 10 login attempts per IP per minute
 @router.post("/login")
 async def login(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
+    data = await _safe_read_json(request)
     email = data.get("email")
     password = data.get("password")
     
     if not email or not password:
+        try:
+            record_auth_event('login', 'failed')
+        except Exception:
+            logger.debug('Failed to record login missing-fields metric')
         raise HTTPException(status_code=400, detail="Missing email or password")
     
     user = db.query(User).filter(User.email == email).first()
@@ -365,6 +405,10 @@ async def login(request: Request, db: Session = Depends(get_db)):
     
     if not user or not password_valid:
         # Generic error - don't reveal whether user exists or password is wrong
+        try:
+            record_auth_event('login', 'failed')
+        except Exception:
+            logger.debug('Failed to record login failed metric')
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     current_country = get_country(ip_address)
@@ -435,9 +479,17 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 affected_user_ids=user.id,
             )
         )
+        try:
+            record_alert("captcha_challenge" if captcha_required else "trust_quarantine")
+        except Exception:
+            logger.debug('Failed to record login alert metric')
     
     if is_blocked:
         # Trust score too low — reject login and alert
+        try:
+            record_auth_event('login', 'quarantined')
+        except Exception:
+            logger.debug('Failed to record login quarantined metric')
         return {
             "token": None,
             "trust_score": score_result.trust_score,
@@ -460,6 +512,10 @@ async def login(request: Request, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(otp_session)
         
+        try:
+            record_auth_event('login', 'otp_required')
+        except Exception:
+            logger.debug('Failed to record login otp_required metric')
         return {
             "token": None,
             "trust_score": score_result.trust_score,
@@ -469,6 +525,10 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "recommendation": score_result.recommendation
         }
     elif captcha_required:
+        try:
+            record_auth_event('login', 'captcha_required')
+        except Exception:
+            logger.debug('Failed to record login captcha_required metric')
         captcha_token, captcha_prompt = _create_captcha_challenge(user.id)
         return {
             "token": None,
@@ -480,6 +540,10 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "recommendation": score_result.recommendation,
         }
     else:
+        try:
+            record_auth_event('login', 'success')
+        except Exception:
+            logger.debug('Failed to record login success metric')
         # High-trust user — allow smooth login
         return {
             "token": access_token,
@@ -494,7 +558,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
 @router.post("/captcha/verify")
 async def verify_captcha(request: Request, db: Session = Depends(get_db)):
     """Verify a captcha challenge and issue a JWT token."""
-    data = await request.json()
+    data = await _safe_read_json(request)
     captcha_token = data.get("captcha_token")
     captcha_answer = data.get("captcha_answer")
 
@@ -530,7 +594,7 @@ async def verify_captcha(request: Request, db: Session = Depends(get_db)):
 @router.post("/otp/send")
 async def send_otp(request: Request, db: Session = Depends(get_db)):
     """Send OTP code to user's email."""
-    data = await request.json()
+    data = await _safe_read_json(request)
     otp_session_id = data.get("otp_session_id")
     email = data.get("email")
     
@@ -590,7 +654,7 @@ async def send_otp(request: Request, db: Session = Depends(get_db)):
 @router.post("/otp/verify")
 async def verify_otp(request: Request, db: Session = Depends(get_db)):
     """Verify OTP code and issue JWT token."""
-    data = await request.json()
+    data = await _safe_read_json(request)
     otp_session_id = data.get("otp_session_id")
     otp_code = data.get("otp_code")
     

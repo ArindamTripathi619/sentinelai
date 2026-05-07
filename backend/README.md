@@ -1,6 +1,6 @@
 # SentinelAI — Backend Services
 
-This directory contains the FastAPI-based backend core for SentinelAI. It manages the continuous trust scoring mechanisms, behavioral signal processing, the SQLite events store, and the standard REST endpoints used by the dashboard.
+This directory contains the FastAPI-based backend core for SentinelAI. It manages the continuous trust scoring mechanisms, behavioral signal processing, the event store (PostgreSQL in recommended local setup), and the standard REST endpoints used by the dashboard.
 
 ## To Run the Backend Locally
 

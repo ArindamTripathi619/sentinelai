@@ -56,7 +56,7 @@ graph TD
     C["📊 Behavioral Collector"]
     D["⚡ Rules Engine<br/>Fast Rules"]
     E["🤖 ML Scorer<br/>Trust Score 0-100"]
-    F["💾 SQLite Event Log Store"]
+    F["💾 PostgreSQL Event Store (local Postgres for dev)"]
     
     G["📈 ADMIN DASHBOARD<br/>React + Vite<br/>Live Threat Feed · Trust Map · User Forensics"]
     
@@ -89,13 +89,24 @@ cd sentinelai
 ### 2. Set up environment variables
 ```bash
 cp .env.example .env
+# Example: point the backend to a local Postgres instance (optional)
+# DATABASE_URL=postgresql+psycopg2://sentinelai:sentinelai@127.0.0.1:5432/sentinelai
 # Fill in your values — see .env.example for details
 ```
 
-### 3. Start the backend
+### 3. Start a local Postgres (recommended for dev)
+Run the monitoring compose which also contains a Postgres service used by local development:
+```bash
+docker compose -f docker-compose.monitoring.yml up -d postgres
+# or, start the full monitoring stack (Prometheus + Grafana + Postgres)
+docker compose -f docker-compose.monitoring.yml up -d
+```
+
+Then start the backend (ensure `DATABASE_URL` points to Postgres if you started it):
 ```bash
 cd backend
 pip install -r requirements.txt
+# Example: export DATABASE_URL='postgresql+psycopg2://sentinelai:sentinelai@127.0.0.1:5432/sentinelai'
 uvicorn main:app --reload --port 9000
 ```
 
@@ -139,7 +150,7 @@ sentinelai/
 ├── backend/
 │   ├── main.py           # FastAPI app entrypoint
 │   ├── auth.py           # JWT + OTP logic
-│   ├── models.py         # SQLite table definitions
+│   ├── models.py         # DB table definitions (SQLAlchemy) — works with SQLite or PostgreSQL
 │   ├── database.py       # DB connection + helpers
 │   ├── rules.py          # Security rules engine
 │   ├── scorer.py         # Trust score calculator
@@ -193,6 +204,42 @@ python test_rules.py         # Tests rules engine with sample inputs
 
 ---
 
+## 🧪 Demo Data and Local Monitoring
+
+Seed the dashboard with users across active, quarantined, and blocked states:
+
+```bash
+python scripts/seed_demo_dashboard.py --reset
+```
+
+Run Prometheus and Grafana locally:
+
+```bash
+docker compose -f docker-compose.monitoring.yml up -d
+```
+
+Local URLs:
+
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3001
+- Grafana login: `admin` / `admin`
+- Backend metrics target: `http://host.docker.internal:9000/metrics`
+
+---
+
 ## 📄 License
+
+## 🔁 Pipeline & CI/CD
+
+This repository includes a minimal, practical CI/CD and local pipeline designed to make development, testing, and demos repeatable.
+
+- **CI (GitHub Actions recommended):** run linting, unit tests, and security checks on every PR. Build matrix should include Python 3.10+ and node for frontend checks.
+- **Build steps:** install Python deps (`pip install -r requirements.txt`), run backend unit tests, run frontend lint/build checks (`npm ci && npm run build`), and run integration smoke tests (`scripts/hackathon_demo.py` or targeted smoke scripts).
+- **Container images:** Dockerfile present for backend (use `docker build -t sentinelai/backend:dev .`) and `docker compose -f docker-compose.monitoring.yml` for local monitoring + Postgres during dev.
+- **Migrations & data:** Use `scripts/migrate_sqlite_to_postgres.py` for one-time migrations; prefer Alembic for schema evolution in CI/CD pipelines going forward.
+- **Release:** CI should tag a release and push a Docker image to your registry. Deploy jobs can run a deploy script (e.g., Helm or simple `docker compose` on the target host).
+- **Observability in pipeline:** CI artifacts include test reports and metrics snapshots; optionally publish Prometheus/Grafana exports for demo runs.
+
+Keep this section short and link to any repo-specific CI workflows you add (e.g., `.github/workflows/ci.yml`).
 
 MIT — Built for educational/hackathon purposes.

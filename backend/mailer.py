@@ -5,9 +5,12 @@ import time
 from email.message import EmailMessage
 from datetime import datetime
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from the repository root `.env` so running under
+# `backend/` still reads the single canonical file at project root.
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / '.env')
 
 # Configure logging
 logger = logging.getLogger(__name__)
