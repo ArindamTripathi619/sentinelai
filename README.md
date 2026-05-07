@@ -56,10 +56,10 @@ graph TD
     C["📊 Behavioral Collector"]
     D["⚡ Rules Engine<br/>Fast Rules"]
     E["🤖 ML Scorer<br/>Trust Score 0-100"]
-    F["💾 PostgreSQL Event Store (local Postgres for dev)"]
-    P["📡 Prometheus\n(scrapes /metrics)"]
-    Q["📈 Grafana\n(dashboards & alerts)"]
-    L["🧾 Logging/Tracing\n(Sentry / ELK / Datadog)"]
+    F["💾 PostgreSQL Event Store<br/>local Postgres for dev"]
+    P["📡 Prometheus<br/>scrapes /metrics"]
+    Q["📈 Grafana<br/>dashboards, alerts"]
+    L["🧾 Logging/Tracing<br/>Sentry, ELK, Datadog"]
     
     G["📈 ADMIN DASHBOARD<br/>React + Vite<br/>Live Threat Feed · Trust Map · User Forensics"]
     
@@ -72,9 +72,9 @@ graph TD
     E -->|Logs| F
     E -->|Trust Insights| G
     F -->|Historical Data| G
-    B -->|exposes `/metrics`| P
-    B -->|emits logs & traces (http, structured)| L
-    P -->|visualized & alerted| Q
+    B -->|exposes metrics| P
+    B -->|emits logs| L
+    P -->|visualized| Q
     L -->|visualized| Q
 ```
 
