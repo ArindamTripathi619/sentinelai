@@ -18,6 +18,8 @@ from database import init_db
 from logging_config import setup_logging, get_logger
 from error_codes import APIError, ValidationError, InternalError
 from monitoring import record_request_timing, record_error
+from scorer import BehavioralPayload, score_registration, score_login
+from rules import check_email_pattern
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,6 +185,65 @@ async def general_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content=error.to_response()
     )
+
+
+# --- Demo / Presentation Endpoints ---
+SCENARIOS = {
+    "bot_wave": {
+        "email": "user7@temp.com",
+        "behavioral": {"typing_variance_ms": 4, "time_to_complete_sec": 1.1,
+                       "mouse_move_count": 0, "keypress_count": 42},
+        "ip_address": "45.118.144.200",
+        "user_agent": "Mozilla/5.0 (Bot)",
+    },
+    "legitimate": {
+        "email": "priya.sharma@gmail.com",
+        "behavioral": {"typing_variance_ms": 187, "time_to_complete_sec": 43,
+                       "mouse_move_count": 62, "keypress_count": 94},
+        "ip_address": "103.21.58.12",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0",
+    },
+    "borderline": {
+        "email": "user@outlook.com",
+        "behavioral": {"typing_variance_ms": 35, "time_to_complete_sec": 6,
+                       "mouse_move_count": 8, "keypress_count": 55},
+        "ip_address": "106.51.71.200",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/537.36",
+    },
+}
+
+from fastapi import Query
+
+@app.get("/api/demo/score")
+def demo_score(scenario: str = Query(..., description="Scenario name: bot_wave, legitimate, or borderline")):
+    """
+    Demo endpoint for presentation use only.
+    Returns what the scoring pipeline would produce for each scenario.
+    """
+    if scenario not in SCENARIOS:
+        return {"error": f"Unknown scenario '{scenario}'. Use one of: {list(SCENARIOS.keys())}"}
+
+    data = SCENARIOS[scenario]
+    behavioral = BehavioralPayload(**data["behavioral"])
+    is_bot = scenario == "bot_wave"
+    result = score_registration(
+        email=data["email"],
+        behavioral=behavioral,
+        ip_address=data["ip_address"],
+        user_agent=data["user_agent"],
+        registrations_from_ip_last_hour=14 if is_bot else 1,
+        accounts_with_same_ua_today=6 if is_bot else 1,
+    )
+
+    return {
+        "scenario": scenario,
+        "trust_score": result.trust_score,
+        "recommendation": result.recommendation,
+        "triggered_rules": result.triggered_rules,
+        "rule_penalty": result.rule_penalty,
+        "behavioral_penalty": result.behavioral_penalty,
+        "ml_penalty": result.ml_penalty,
+    }
 
 
 # --- Monitoring Endpoints ---

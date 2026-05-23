@@ -62,7 +62,15 @@ export function stopTracking() {
  *
  * @returns {Object} behavioral payload
  */
+/**
+ * Check for demo mode override (set via browser console for presentations).
+ * Usage in console: window.__DEMO_OVERRIDE__ = { typing_variance_ms: 3, time_to_complete_sec: 1.2, mouse_move_count: 0, keypress_count: 44 }
+ */
 export function getPayload() {
+  if (typeof window !== "undefined" && window.__DEMO_OVERRIDE__) {
+    return { ...window.__DEMO_OVERRIDE__ };
+  }
+
   const now = Date.now();
   const timeToComplete = trackingState.startTime
     ? (now - trackingState.startTime) / 1000
