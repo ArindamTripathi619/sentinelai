@@ -232,6 +232,55 @@ class TestLiveSmoke(unittest.TestCase):
         self.assertIn("recommendation", data)
 
 
+class TestAdminAccessControl(unittest.TestCase):
+    """Test admin vs regular user access control."""
+
+    def test_jwt_includes_is_admin_flag(self):
+        """Verify create_access_token embeds is_admin and email."""
+        sys.path.insert(0, str(BACKEND_DIR))
+        from auth import create_access_token, SECRET_KEY
+        from models import User
+        from jose import jwt
+
+        admin = User(id="a1", email="admin@test.com", is_admin=True)
+        user = User(id="u1", email="user@test.com", is_admin=False)
+
+        admin_token = create_access_token(admin)
+        user_token = create_access_token(user)
+
+        admin_payload = jwt.decode(admin_token, SECRET_KEY, algorithms=["HS256"])
+        user_payload = jwt.decode(user_token, SECRET_KEY, algorithms=["HS256"])
+
+        self.assertEqual(admin_payload["is_admin"], True)
+        self.assertEqual(user_payload["is_admin"], False)
+        self.assertEqual(admin_payload["email"], "admin@test.com")
+        self.assertEqual(user_payload["email"], "user@test.com")
+        self.assertEqual(admin_payload["sub"], "a1")
+        self.assertEqual(user_payload["sub"], "u1")
+
+    def test_require_admin_allows_admin(self):
+        """Verify require_admin passes for admin users."""
+        sys.path.insert(0, str(BACKEND_DIR))
+        from auth import require_admin
+        from models import User
+
+        admin = User(id="a1", email="admin@test.com", is_admin=True)
+        result = require_admin(current_user=admin)
+        self.assertIs(result, admin)
+
+    def test_require_admin_rejects_non_admin(self):
+        """Verify require_admin raises 403 for non-admin users."""
+        sys.path.insert(0, str(BACKEND_DIR))
+        from auth import require_admin
+        from models import User
+        from fastapi import HTTPException
+
+        user = User(id="u1", email="user@test.com", is_admin=False)
+        with self.assertRaises(HTTPException) as ctx:
+            require_admin(current_user=user)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+
 class TestSMTPHardening(unittest.TestCase):
     """Test SMTP delivery hardening and retry logic."""
     

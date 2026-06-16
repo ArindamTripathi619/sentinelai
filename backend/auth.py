@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User, Event, Alert, OtpSession
+from models import User, Event, Alert, OtpSession, PasswordResetToken
 from scorer import score_registration, score_login, BehavioralPayload
 from geo import get_country
-from mailer import send_otp_email
+from mailer import send_otp_email, send_reset_email
 import hashlib
 import secrets
 import json
@@ -74,6 +74,15 @@ class CaptchaChallengeResponse(BaseModel):
     captcha_prompt: str
     user_id: str
     recommendation: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 def validate_password(password: str) -> None:
@@ -738,3 +747,90 @@ async def verify_otp(request: Request, db: Session = Depends(get_db)):
         "user_id": user.id,
         "message": "Login successful"
     }
+
+
+@limiter.limit("3/minute")
+@router.post("/forgot-password")
+async def forgot_password(request: Request, body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Send a password reset email. Always returns 200 to prevent email enumeration."""
+    email = body.email.strip().lower()
+    ip_address = _extract_ip(request, {})
+
+    user = db.query(User).filter(User.email == email).first()
+
+    if user:
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+        reset_token = PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.utcnow() + timedelta(minutes=15),
+            ip_address=ip_address,
+        )
+        db.add(reset_token)
+        db.commit()
+
+        delivery = send_reset_email(email, raw_token)
+
+        try:
+            record_auth_event("password_reset_request", delivery["status"])
+        except Exception:
+            logger.debug("Failed to record password reset metric")
+
+        logger.info(f"Password reset requested for {email} — delivery: {delivery['status']}")
+    else:
+        logger.info(f"Password reset requested for unknown email: {email}")
+
+    return {"message": "If that email is registered, you will receive a reset link."}
+
+
+@limiter.limit("5/minute")
+@router.post("/reset-password")
+async def reset_password(request: Request, body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Verify reset token and update password."""
+    validate_password(body.new_password)
+
+    token_hash = hashlib.sha256(body.token.encode("utf-8")).hexdigest()
+
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.token_hash == token_hash,
+            PasswordResetToken.used == False,
+        )
+        .first()
+    )
+
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
+
+    if datetime.utcnow() > reset_token.expires_at:
+        reset_token.used = True
+        db.commit()
+        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+
+    user = db.query(User).filter(User.id == reset_token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found.")
+
+    user.password_hash = hash_password(body.new_password)
+    reset_token.used = True
+    db.commit()
+
+    event = Event(
+        user_id=user.id,
+        action="password_reset",
+        ip_address=_extract_ip(request, {}),
+        user_agent=_extract_user_agent(request, {}),
+        metadata_json=json.dumps({"password_reset": True}),
+    )
+    db.add(event)
+    db.commit()
+
+    try:
+        record_auth_event("password_reset", "success")
+    except Exception:
+        logger.debug("Failed to record password reset metric")
+
+    return {"message": "Password reset successful. You can now log in with your new password."}

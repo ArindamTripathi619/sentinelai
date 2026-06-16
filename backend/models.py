@@ -48,6 +48,7 @@ class Event(Base):
     action = Column(String, nullable=False)
     # action types: register | login | login_failed | otp_sent | otp_verified
     #               quarantined | unquarantined | blocked | geo_drift
+    #               password_reset
     ip_address = Column(String, nullable=True)
     country = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
@@ -74,6 +75,18 @@ class Alert(Base):
     affected_user_ids = Column(Text, nullable=True)  # JSON array string
     resolved = Column(Boolean, default=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(String, primary_key=True, default=new_id)
+    user_id = Column(String, nullable=False, index=True)
+    token_hash = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String, nullable=True)
 
 
 class OtpSession(Base):

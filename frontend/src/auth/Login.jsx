@@ -187,6 +187,12 @@ export default function Login() {
               </>
             )}
           </button>
+
+          <div className="text-center">
+            <Link to="/forgot-password" className="text-sm text-gray-400 hover:text-blue-400 transition-colors">
+              Forgot Password?
+            </Link>
+          </div>
           </form>
         ) : requiresOtp ? (
           <form onSubmit={handleOtpVerify} className="space-y-6">

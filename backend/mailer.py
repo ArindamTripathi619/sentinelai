@@ -28,6 +28,10 @@ SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT", "10"))
 SMTP_STRICT_MODE = os.getenv("SMTP_STRICT_MODE", "0") == "1"
 
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "15"))
+
+
 def smtp_is_configured() -> bool:
     """Check if SMTP credentials are configured."""
     return bool(SMTP_EMAIL and SMTP_APP_PASSWORD)
@@ -119,4 +123,95 @@ def send_otp_email(recipient_email: str, otp_code: str, expires_in_minutes: int 
         result["status"] = "console_fallback"
         logger.warning(f"[{result['timestamp']}] SMTP delivery failed after {SMTP_RETRIES} attempts. Falling back to console for {recipient_email}")
         print(f"[OTP_CONSOLE_FALLBACK] {recipient_email}: {otp_code}")
+        return result
+
+
+def send_reset_email(recipient_email: str, reset_token: str) -> dict:
+    """
+    Send a password reset email via SMTP with retry logic.
+
+    Returns dict with:
+    {
+        "status": "delivered" | "failed" | "console_fallback" | "not_configured",
+        "attempts": <int>,
+        "error": <str or None>,
+        "timestamp": <ISO string>
+    }
+    """
+    reset_link = f"{FRONTEND_URL}/reset-password?token={reset_token}"
+    subject = "Reset your SentinelAI password"
+    body = (
+        f"You requested a password reset for your SentinelAI account.\n\n"
+        f"Click the link below to reset your password. This link expires in "
+        f"{RESET_TOKEN_EXPIRE_MINUTES} minutes.\n\n"
+        f"{reset_link}\n\n"
+        f"If you did not request this, you can safely ignore this email."
+    )
+
+    result = {
+        "status": "not_configured",
+        "attempts": 0,
+        "error": None,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    if not smtp_is_configured():
+        logger.warning(f"[{result['timestamp']}] SMTP not configured. Falling back to console for {recipient_email}")
+        print(f"[RESET_CONSOLE] {recipient_email}: {reset_link}")
+        result["status"] = "console_fallback" if not SMTP_STRICT_MODE else "failed"
+        result["error"] = "SMTP not configured"
+        return result
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = f"{SMTP_FROM_NAME} <{SMTP_EMAIL}>"
+    message["To"] = recipient_email
+    message.set_content(body)
+
+    last_error = None
+    for attempt in range(1, SMTP_RETRIES + 1):
+        result["attempts"] = attempt
+        try:
+            logger.info(f"[{result['timestamp']}] SMTP attempt {attempt}/{SMTP_RETRIES} for {recipient_email}")
+
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT) as smtp:
+                smtp.starttls()
+                smtp.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
+                smtp.send_message(message)
+
+            result["status"] = "delivered"
+            logger.info(f"[{result['timestamp']}] Reset email delivered via SMTP for {recipient_email}")
+            return result
+
+        except smtplib.SMTPAuthenticationError as e:
+            last_error = f"SMTP authentication failed: {str(e)}"
+            logger.error(f"[{result['timestamp']}] {last_error} (attempt {attempt}/{SMTP_RETRIES})")
+            if attempt < SMTP_RETRIES:
+                backoff_seconds = 2 ** (attempt - 1)
+                time.sleep(backoff_seconds)
+
+        except smtplib.SMTPException as e:
+            last_error = f"SMTP error: {str(e)}"
+            logger.error(f"[{result['timestamp']}] {last_error} (attempt {attempt}/{SMTP_RETRIES})")
+            if attempt < SMTP_RETRIES:
+                backoff_seconds = 2 ** (attempt - 1)
+                time.sleep(backoff_seconds)
+
+        except Exception as e:
+            last_error = f"Unexpected error: {type(e).__name__}: {str(e)}"
+            logger.error(f"[{result['timestamp']}] {last_error} (attempt {attempt}/{SMTP_RETRIES})")
+            if attempt < SMTP_RETRIES:
+                backoff_seconds = 2 ** (attempt - 1)
+                time.sleep(backoff_seconds)
+
+    result["error"] = last_error
+
+    if SMTP_STRICT_MODE:
+        result["status"] = "failed"
+        logger.critical(f"[{result['timestamp']}] SMTP delivery failed after {SMTP_RETRIES} attempts for {recipient_email}. Strict mode enabled, not falling back to console.")
+        return result
+    else:
+        result["status"] = "console_fallback"
+        logger.warning(f"[{result['timestamp']}] SMTP delivery failed after {SMTP_RETRIES} attempts. Falling back to console for {recipient_email}")
+        print(f"[RESET_CONSOLE_FALLBACK] {recipient_email}: {reset_link}")
         return result
