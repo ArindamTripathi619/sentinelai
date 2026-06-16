@@ -469,6 +469,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
             (datetime.utcnow() - previous_login_event.timestamp).total_seconds() / 60.0
         )
 
+    previous_status = user.status
+
     score_result = score_login(
         user_id=user.id,
         existing_trust_score=user.trust_score,
@@ -529,7 +531,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
             logger.debug('Failed to record login alert metric')
     
     if is_blocked:
-        # Trust score too low — reject login and alert
+        is_hard_block = previous_status == "blocked"
         try:
             record_auth_event('login', 'quarantined')
         except Exception:
@@ -539,9 +541,10 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "trust_score": score_result.trust_score,
             "otp_required": False,
             "is_blocked": True,
+            "is_hard_block": is_hard_block,
             "user_id": user.id,
-            "recommendation": score_result.recommendation,
-            "message": "Account flagged. Please contact support."
+            "recommendation": "blocked" if is_hard_block else "quarantine",
+            "message": "Account suspended." if is_hard_block else "Account under review. An admin will review your account status."
         }
     elif otp_required:
         # Create OTP session for medium-trust users

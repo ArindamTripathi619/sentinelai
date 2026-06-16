@@ -129,13 +129,24 @@ DEMO_USERS: list[DemoProfile] = [
         otp_mode="captcha",
     ),
     DemoProfile(
-        email="rhea.das@sentinelai.local",
-        trust_score=38,
-        status="quarantined",
-        last_ip="27.7.90.1",
+        email="arjun.nair@sentinelai.local",
+        trust_score=31,
+        status="active",
+        last_ip="203.192.80.55",
         country="India",
+        recommendation="captcha",
+        triggered_rules=["speed_bot", "email_pattern"],
+        otp_mode="captcha",
+    ),
+    DemoProfile(
+        email="rhea.das@sentinelai.local",
+        trust_score=15,
+        status="quarantined",
+        last_ip="45.67.89.10",
+        country="USA",
         recommendation="quarantine",
-        triggered_rules=["geo_drift", "email_pattern"],
+        triggered_rules=["speed_bot", "geo_drift", "email_pattern"],
+        otp_mode="captcha",
     ),
     DemoProfile(
         email="kabir.mehta@sentinelai.local",
@@ -202,6 +213,13 @@ ALERT_SEEDS = [
         "description": "Demo seed: sequential email naming pattern flagged for review.",
         "affected": ["ishaan.rao@sentinelai.local", "pooja.ghosh@sentinelai.local"],
         "minutes_ago": 70,
+    },
+    {
+        "type": "email_pattern",
+        "severity": "medium",
+        "description": "Demo seed: CAPTCHA triggered for borderline trust score with email + speed anomalies.",
+        "affected": ["arjun.nair@sentinelai.local"],
+        "minutes_ago": 85,
     },
 ]
 

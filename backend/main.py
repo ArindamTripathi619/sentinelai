@@ -8,6 +8,12 @@ from dotenv import load_dotenv
 from pathlib import Path
 import time
 import logging
+
+ROOT = Path(__file__).resolve().parents[1]
+# Load the canonical project `.env` at the repository root
+# MUST happen before any module that reads env vars (e.g. database.py)
+load_dotenv(ROOT / '.env')
+
 import auth
 import users
 import alerts
@@ -23,10 +29,6 @@ from monitoring import record_request_timing, record_error
 from scorer import BehavioralPayload, score_registration, score_login
 from rules import check_email_pattern
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-
-ROOT = Path(__file__).resolve().parents[1]
-# Load the canonical project `.env` at the repository root
-load_dotenv(ROOT / '.env')
 
 # Setup structured logging
 setup_logging()

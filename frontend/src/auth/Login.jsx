@@ -54,7 +54,9 @@ export default function Login() {
         setCaptchaToken(response.data.captcha_token);
         setCaptchaPrompt(response.data.captcha_prompt);
         setInfo('Captcha verification is required.');
-      } else       if (response.data.token) {
+      } else if (response.data.is_blocked) {
+        setError(response.data.message || 'Account access restricted.');
+      } else if (response.data.token) {
         setUserSession({ token: response.data.token, userId: response.data.user_id });
         const isAdminUser = isAdmin();
         navigate(isAdminUser ? '/dashboard' : '/events', { replace: true });

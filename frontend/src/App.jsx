@@ -4,6 +4,7 @@ import Login from './auth/Login'
 import Register from './auth/Register'
 import ForgotPassword from './auth/ForgotPassword'
 import ResetPassword from './auth/ResetPassword'
+import EventsPage from './auth/Events'
 import Dashboard from './dashboard/Dashboard'
 import UserTimeline from './dashboard/UserTimeline'
 import AdminGuard from './dashboard/AdminGuard'
@@ -49,9 +50,7 @@ function App() {
           path="/events"
           element={
             <ProtectedRoute>
-              <div className="min-h-screen bg-gray-900 flex items-center justify-center text-gray-400">
-                Event Platform — under construction
-              </div>
+              <EventsPage />
             </ProtectedRoute>
           }
         />

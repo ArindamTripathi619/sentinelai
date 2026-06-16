@@ -31,7 +31,7 @@ make start-backend
 ```
 Wait until you see: `INFO: Application startup complete`
 
-> **Note:** The Makefile reads `.env` from the repo root. Ensure your `.env` has `DATABASE_URL`, `JWT_SECRET`, `SMTP_EMAIL`, `SMTP_APP_PASSWORD`, and `FRONTEND_URL=http://localhost:3000` set (SMTP needed for OTP and password reset emails).
+> **Note:** The Makefile reads `.env` from the repo root. Ensure your `.env` has `DATABASE_URL`, `JWT_SECRET`, `SMTP_EMAIL`, `SMTP_APP_PASSWORD`, and `FRONTEND_URL=http://localhost:3000` set (SMTP needed for OTP and password reset emails). Also verify `ADMIN_PASSWORD` is set to `Admin@2024` (or whatever password you use for the demo admin account).
 
 **Terminal 2 — PostgreSQL + Monitoring Stack:**
 ```
@@ -67,10 +67,11 @@ This runs both seeders: 50 normal users + 12 demo users across the full trust sp
 | `meera.patel@sentinelai.local` | `DemoPass!234` | 76 | active | direct | user |
 | `ishaan.rao@sentinelai.local` | `DemoPass!234` | 68 | active | OTP | user |
 | `pooja.ghosh@sentinelai.local` | `DemoPass!234` | 61 | active | OTP | user |
-| `amit.bose@sentinelai.local` | `DemoPass!234` | 57 | active | OTP+CAPTCHA | user |
-| `tanvi.khan@sentinelai.local` | `DemoPass!234` | 43 | active | OTP+CAPTCHA | user |
-| `rhea.das@sentinelai.local` | `DemoPass!234` | 38 | quarantined | blocked | user |
-| `kabir.mehta@sentinelai.local` | `DemoPass!234` | 27 | quarantined | blocked | user |
+| `amit.bose@sentinelai.local` | `DemoPass!234` | 57 | active | OTP | user |
+| `tanvi.khan@sentinelai.local` | `DemoPass!234` | 43 | active | OTP | user |
+| `arjun.nair@sentinelai.local` | `DemoPass!234` | 31 | active | CAPTCHA | user |
+| `rhea.das@sentinelai.local` | `DemoPass!234` | 15 | quarantined | Quarantine | user |
+| `kabir.mehta@sentinelai.local` | `DemoPass!234` | 27 | quarantined | CAPTCHA | user |
 | `divya.iyer@sentinelai.local` | `DemoPass!234` | 16 | blocked | blocked | user |
 | `nikhil.joshi@sentinelai.local` | `DemoPass!234` | 8 | blocked | blocked | user |
 
@@ -315,11 +316,11 @@ Say: "The password hash is updated in the database. Existing JWT sessions are no
 
 > **SAY THIS:** "Forgot password and reset password each have their own rate limits — 3 requests per minute per IP for forgot, 5 per minute per IP for reset. Coupled with the no-enumeration response, brute-forcing the recovery flow is not feasible."
 
-### 3.3 Trust Score Demo — Four Users, Four Outcomes
+### 3.3 Trust Score Demo — Five Users, Four Outcomes
 
 Keep the admin dashboard open in one tab. Open the login page in another tab. Switch between them to show alerts appearing after each login.
 
-Pick any four accounts from the table in Section 1.2 — one from each outcome band. Common choices:
+Pick any accounts from the table in Section 1.2 — one from each outcome band. Common choices:
 
 > **DEMO USER 1 — Safe User (Trust 91, Direct Login)**
 > `ananya.sharma@sentinelai.local` / `DemoPass!234`
@@ -333,17 +334,24 @@ Pick any four accounts from the table in Section 1.2 — one from each outcome b
 > Say: "Trust score of 61. Between 40 and 69 — the suspicious band. The system does not block this user outright. It applies friction: OTP verification. Check your email."
 > Show: Type in the OTP that arrives. Login completes. Say: "Progressive authentication. Security friction proportional to risk."
 > 
-> **DEMO USER 3 — Quarantined User (Trust 38, Login Blocked)**
+> **DEMO USER 3 — CAPTCHA User (Trust 31, CAPTCHA Challenge)**
+> `arjun.nair@sentinelai.local` / `DemoPass!234`
+> Expected: CAPTCHA prompt appears with an alphanumeric code to type
+> Say: "Trust score of 31. Between 20 and 39 — the CAPTCHA band. The system needs a bit more proof but is not locking the account yet. The captcha is our last friction layer before quarantine."
+> Show: Type the code shown, submit. Login completes. Say: "A captcha is the shallowest friction — a human solves it in seconds, a bot gets blocked."
+> 
+> **DEMO USER 4 — Quarantined User (Trust 15, Login Blocked)**
 > `rhea.das@sentinelai.local` / `DemoPass!234`
-> Expected: Login blocked with 'Account under review' message
-> Say: "Trust score of 38. Below the quarantine threshold of 20. This account was flagged during our bot wave simulation. The user cannot log in, but they are not permanently banned. They are in quarantine — rate-limited, heavily logged, pending admin review."
-> Switch to admin dashboard. Find this account in User Forensics. Show the Approve button.
+> Expected: Login blocked with 'Account under review. An admin will review your account status.'
+> Say: "Trust score of 15. Below the quarantine threshold of 20. This account was flagged during our bot wave simulation. The user cannot log in, but they are not permanently banned. They are in quarantine — rate-limited, heavily logged, pending admin review."
+> Before proceeding, check the admin dashboard: rhea.das should appear in the Quarantined section with an Approve button.
+> Show: Switch to admin dashboard. Find this account in User Forensics. Show the Approve button.
 > Say: "The admin can approve them back to active, or permanently block them. Human-in-the-loop verification. This is how we avoid false-positive hard bans."
 > 
-> **DEMO USER 4 — Blocked User (Trust 8, Hard Block)**
+> **DEMO USER 5 — Blocked User (Trust 8, Hard Block)**
 > `nikhil.joshi@sentinelai.local` / `DemoPass!234`
-> Expected: Login blocked with 'Account suspended' message
-> Say: "Trust score of 8. This account has been reviewed by an admin and permanently blocked. No OTP, no review option. Hard block."
+> Expected: Login blocked with 'Account suspended.' message
+> Say: "Trust score of 8. This account has been reviewed by an admin and permanently blocked. No OTP, no review option, no unblock option. Hard block. The difference from quarantine is subtle but critical: quarantine has an Approve button for admin review. Blocked users do not."
 
 ### 3.4 Live Bot Registration Demo — Showing Detection in Real Time
 
