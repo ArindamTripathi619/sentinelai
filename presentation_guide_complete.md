@@ -23,29 +23,57 @@ Complete every step below at least 30 minutes before the presentation. Do not sk
 
 ### 1.1 Start All Services
 
-Use the Makefile from the repo root. Open four terminal windows and run:
+Use the Makefile from the repo root. Open **three** terminal windows and run in this exact order:
 
-**Terminal 1 — Backend Server:**
-```
-make start-backend
-```
-Wait until you see: `INFO: Application startup complete`
-
-> **Note:** The Makefile reads `.env` from the repo root. Ensure your `.env` has `DATABASE_URL`, `JWT_SECRET`, `SMTP_EMAIL`, `SMTP_APP_PASSWORD`, and `FRONTEND_URL=http://localhost:3000` set (SMTP needed for OTP and password reset emails). Also verify `ADMIN_PASSWORD` is set to `Admin@2024` (or whatever password you use for the demo admin account).
-
-**Terminal 2 — PostgreSQL + Monitoring Stack:**
+**Terminal 1 — PostgreSQL + Monitoring Stack (background, exits immediately):**
 ```
 make start-monitoring
 ```
-Wait ~20 seconds, then verify: open http://localhost:9090 (Prometheus) and http://localhost:3001 (Grafana). Grafana login: admin / admin
+This runs Docker Compose in detached mode — it starts Postgres, Prometheus, and Grafana then exits. The containers continue running on their own. Wait ~20 seconds, then verify: open http://localhost:9090 (Prometheus) and http://localhost:3001 (Grafana). Grafana login: admin / admin
 
-**Terminal 3 — Frontend:**
+> **Important:** Postgres must be running before the backend starts. The backend reads `DATABASE_URL` at import time.
+
+**Terminal 2 — Backend Server (foreground, blocks until Ctrl+C):**
+```
+make start-backend
+```
+This runs `uvicorn main:app --reload --port 9000` in the foreground. It stays in this terminal until you press **Ctrl+C** to stop it. Wait until you see: `INFO: Application startup complete`
+
+> **Note:** The Makefile reads `.env` from the repo root. Ensure your `.env` has `DATABASE_URL`, `JWT_SECRET`, `SMTP_EMAIL`, `SMTP_APP_PASSWORD`, and `FRONTEND_URL=http://localhost:3000` set (SMTP needed for OTP and password reset emails). Also verify `ADMIN_PASSWORD` is set to `Admin@2024` (or whatever password you use for the demo admin account).
+
+**Terminal 3 — Frontend (foreground, blocks until Ctrl+C):**
 ```
 make start-frontend
 ```
-App opens at http://localhost:3000
+This runs `npm run dev` in the foreground. It stays in this terminal until you press **Ctrl+C** to stop it. App opens at http://localhost:3000
 
-**Terminal 4 — Attack Simulation (keep ready, do not run yet):**
+**Terminal 3 also — Seed data (runs and exits):**
+After the frontend is running, use the same terminal (or any terminal) to run:
+```
+make seed-all
+```
+This runs two seeding scripts that complete and exit within seconds. Data persists in the database.
+
+> **Tip:** You can also run everything from a single terminal by backgrounding backend and frontend:
+> ```bash
+> make start-monitoring   # exits immediately (Docker -d)
+> make start-backend &    # runs in background
+> make start-frontend &   # runs in background
+> make seed-all           # runs and exits
+> ```
+
+**Quick start (single command):**
+```bash
+make start-all
+```
+This runs monitoring, backend, frontend, and seed-all in sequence — all in the background. The terminal is free for other commands immediately. Takes ~20 seconds. Stop everything with:
+```bash
+make stop-all
+```
+
+> **Note:** Logs are written to `/tmp/sentinelai-backend.log` and `/tmp/sentinelai-frontend.log` respectively when using `make start-all`.
+
+**Terminal 4 (optional) — Attack Simulation (keep ready, do not run yet):**
 Keep this window open. You will run `make attack-botwave` live during the demo.
 
 ### 1.2 Seed Demo Accounts
@@ -90,29 +118,37 @@ This runs both seeders: 50 normal users + 12 demo users across the full trust sp
 
 All common operations are available as `make` targets from the repo root:
 
-| Command | What It Does |
-|---------|-------------|
-| `make install` | Install all deps (backend + frontend) |
-| `make start-backend` | Start FastAPI on port 9000 |
-| `make start-frontend` | Start Vite on port 3000 |
-| `make start-monitoring` | Start Postgres + Prometheus + Grafana |
-| `make stop-monitoring` | Stop monitoring stack |
-| `make seed-all` | Seed 50 normal + 12 demo users |
-| `make seed-demo` | Seed only the 12 demo dashboard users |
-| `make test` | Run full offline test suite |
-| `make test-rules` | Run rules engine unit tests (standalone, offline) |
-| `make test-scorer` | Run trust score pipeline tests (standalone, offline) |
-| `make attack-botwave` | Simulate 15 bot registrations |
-| `make attack-geodrift` | Simulate cross-country geo drift |
-| `make attack-all` | Run all 3 attack scenarios |
-| `make simulate-load` | Load test: 50 users, 10 workers |
-| `make simulate-comprehensive` | Run 6 security attack scenarios |
-| `make simulate-hackathon` | Run parallel hackathon demo |
-| `make train-model` | Retrain Isolation Forest model |
-| `make model-predict` | Quick ML sanity check (offline) |
-| `make status` | Print system status & detection coverage |
-| `make mon-logs` | Tail monitoring stack logs |
-| `make clean` | Remove Python cache files |
+| Command | What It Does | Type |
+|---------|-------------|------|
+| `make install` | Install all deps (backend + frontend) | runs and exits |
+| `make start-backend` | Start FastAPI on port 9000 | **foreground** — Ctrl+C to stop |
+| `make start-frontend` | Start Vite on port 3000 | **foreground** — Ctrl+C to stop |
+| `make start-all` | Start everything (monitoring + backend + frontend + seed) | runs and exits — all background |
+| `make stop-all` | Stop everything (backend + frontend + monitoring) | runs and exits |
+| `make stop-backend` | Kill backend on port 9000 by PID | runs and exits |
+| `make stop-frontend` | Kill frontend on port 3000 by PID | runs and exits |
+| `make start-monitoring` | Start Postgres + Prometheus + Grafana | **background** (Docker `-d`) |
+| `make stop-monitoring` | Stop docker stack | runs and exits |
+| `make seed-all` | Seed 50 normal + 12 demo users | runs and exits |
+| `make seed-demo` | Seed only the 12 demo dashboard users | runs and exits |
+| `make test` | Run full offline test suite | runs and exits |
+| `make test-rules` | Run rules engine unit tests (standalone, offline) | runs and exits |
+| `make test-scorer` | Run trust score pipeline tests (standalone, offline) | runs and exits |
+| `make attack-botwave` | Simulate 15 bot registrations | runs and exits |
+| `make attack-geodrift` | Simulate cross-country geo drift | runs and exits |
+| `make attack-all` | Run all 3 attack scenarios | runs and exits |
+| `make simulate-load` | Load test: 50 users, 10 workers | runs and exits |
+| `make simulate-comprehensive` | Run 6 security attack scenarios | runs and exits |
+| `make simulate-hackathon` | Run parallel hackathon demo | runs and exits |
+| `make train-model` | Retrain Isolation Forest model | runs and exits |
+| `make model-predict` | Quick ML sanity check (offline) | runs and exits |
+| `make status` | Print system status & detection coverage | runs and exits |
+| `make mon-logs` | Tail monitoring stack logs | foreground — Ctrl+C to stop |
+| `make clean` | Remove Python cache files | runs and exits |
+
+**Stopping everything:**
+- All at once: `make stop-all`
+- Individually: `make stop-backend`, `make stop-frontend`, `make stop-monitoring`
 
 ---
 

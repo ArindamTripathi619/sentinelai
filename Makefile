@@ -5,7 +5,8 @@ FRONTEND_PORT := 3000
 DC    := docker compose -f docker-compose.monitoring.yml
 
 .PHONY: help install install-backend install-frontend \
-        start-backend start-frontend start-monitoring stop-monitoring mon-logs \
+        start-backend start-frontend start-monitoring stop-monitoring \
+        start-all stop-all stop-backend stop-frontend mon-logs \
         seed-users seed-demo seed-all \
         test test-rules test-scorer test-alignment \
         attack-botwave attack-geodrift attack-speedbot attack-all \
@@ -53,6 +54,44 @@ stop-monitoring:                  ## Stop monitoring stack
 
 mon-logs:                         ## Tail monitoring stack logs
 	$(DC) logs -f
+
+start-all:                        ## Start everything: monitoring + backend + frontend + seed (all background)
+	@echo "Starting monitoring stack..."
+	$(DC) up -d
+	@echo "Waiting for Postgres to be ready..."
+	@sleep 8
+	@echo "Starting backend in background (port $(BACKEND_PORT))..."
+	@cd backend && nohup ../venv/bin/uvicorn main:app --reload --port $(BACKEND_PORT) > /tmp/sentinelai-backend.log 2>&1 & disown
+	@sleep 3
+	@echo "Starting frontend in background (port $(FRONTEND_PORT))..."
+	@cd frontend && nohup npm run dev > /tmp/sentinelai-frontend.log 2>&1 & disown
+	@sleep 3
+	@echo "Seeding data..."
+	$(VENV) scripts/seed_normal_users.py
+	$(VENV) scripts/seed_demo_dashboard.py
+	@echo ""
+	@echo "All services running:"
+	@echo "  Backend : http://localhost:$(BACKEND_PORT)      (log: /tmp/sentinelai-backend.log)"
+	@echo "  Frontend: http://localhost:$(FRONTEND_PORT)     (log: /tmp/sentinelai-frontend.log)"
+	@echo "  Postgres: localhost:5432"
+	@echo "  Prometheus: http://localhost:9090"
+	@echo "  Grafana   : http://localhost:3001 (admin/admin)"
+	@echo ""
+	@echo "Run 'make stop-all' to stop everything."
+
+stop-backend:                     ## Stop backend server
+	@echo "Stopping backend (port $(BACKEND_PORT))..."
+	@-lsof -ti :$(BACKEND_PORT) | xargs kill 2>/dev/null; echo "  done"
+
+stop-frontend:                    ## Stop frontend dev server
+	@echo "Stopping frontend (port $(FRONTEND_PORT))..."
+	@-lsof -ti :$(FRONTEND_PORT) | xargs kill 2>/dev/null; echo "  done"
+
+stop-all: stop-backend stop-frontend ## Stop everything: backend + frontend + monitoring
+	@echo "Stopping monitoring stack..."
+	$(DC) down
+	@echo ""
+	@echo "All services stopped."
 
 # ── Seed Data ────────────────────────────────────────────────────────────────
 

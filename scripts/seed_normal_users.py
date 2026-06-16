@@ -136,7 +136,7 @@ def main():
         first = random.choice(FIRST_NAMES)
         last = random.choice(LAST_NAMES)
         email = random_email(first, last)
-        password = "Demo@" + "".join(random.choices(string.ascii_letters + string.digits, k=8))
+        password = "Demo@" + "".join(random.choices(string.ascii_letters + string.digits, k=7)) + random.choice(string.digits)
         behavioral = human_behavioral()
         ip = random.choice(REALISTIC_IPS)
 
