@@ -183,7 +183,7 @@ def scenario_speed_bot():
 
     payload = {
         "email": email,
-        "password": "password",
+        "password": "Pass123word",
         "behavioral": {
             "typing_variance_ms": 3.1,    # Near-zero variance = robot
             "time_to_complete_sec": 1.2,  # Impossible for a human

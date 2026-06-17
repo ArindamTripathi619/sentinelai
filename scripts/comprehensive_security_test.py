@@ -40,8 +40,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 API_BASE = "http://localhost:9000/api"
-ADMIN_EMAIL = "admin@example.com"
-ADMIN_PASS = "password123"
+ADMIN_EMAIL = "admin.demo@sentinelai.local"
+ADMIN_PASS = "DemoPass!234"
 
 # ANSI colors
 RED     = "\033[91m"
@@ -100,7 +100,7 @@ class TestSuite:
         try:
             resp = requests.post(
                 f"{API_BASE}/login",
-                json={"username": ADMIN_EMAIL, "password": ADMIN_PASS},
+                json={"email": ADMIN_EMAIL, "password": ADMIN_PASS},
                 timeout=5
             )
             if resp.status_code == 200:
@@ -162,7 +162,7 @@ class TestSuite:
         payload = {
             "email": email,
             "password": password,
-            **self.generate_behavioral_payload(is_bot=is_bot)
+            "behavioral": self.generate_behavioral_payload(is_bot=is_bot),
         }
 
         headers = {}
@@ -194,7 +194,7 @@ class TestSuite:
     def login_user(self, email, password="TestPass123!", ip_address=None):
         """Attempt login for a user."""
         payload = {
-            "username": email,
+            "email": email,
             "password": password,
         }
 
@@ -548,8 +548,8 @@ class TestSuite:
             
             db = SessionLocal()
             admin = User(
-                email=ADMIN_EMAIL,
-                password_hash=auth.hash_password(ADMIN_PASS),
+                email="admin@example.com",
+                password_hash=auth.hash_password("password123"),
                 is_admin=True,
                 status="active"
             )

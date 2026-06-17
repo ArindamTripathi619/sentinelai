@@ -68,10 +68,12 @@ class HackathonDemo:
             payload = {
                 "email": email,
                 "password": "Test123!",
-                "typing_variance_ms": random.uniform(1, 5) if is_bot else random.uniform(50, 150),
-                "time_to_complete_sec": random.uniform(0.3, 1.0) if is_bot else random.uniform(8, 25),
-                "mouse_move_count": 0 if is_bot else random.randint(10, 50),
-                "keypress_count": random.randint(25, 40) if is_bot else random.randint(60, 120),
+                "behavioral": {
+                    "typing_variance_ms": random.uniform(1, 5) if is_bot else random.uniform(50, 150),
+                    "time_to_complete_sec": random.uniform(0.3, 1.0) if is_bot else random.uniform(8, 25),
+                    "mouse_move_count": 0 if is_bot else random.randint(10, 50),
+                    "keypress_count": random.randint(25, 40) if is_bot else random.randint(60, 120),
+                },
             }
             
             try:
@@ -134,7 +136,7 @@ class HackathonDemo:
             for attempt in range(attempts_per):
                 try:
                     resp = requests.post(f"{API_BASE}/login",
-                        json={"username": email, "password": "WrongPassword!"},
+                        json={"email": email, "password": "WrongPassword!"},
                         timeout=5)
                     self.failed_logins += 1
                 except:
@@ -161,8 +163,14 @@ class HackathonDemo:
         
         # Register from USA
         try:
-            requests.post(f"{API_BASE}/register",
-                json={"email": email, "password": "Test123!"},
+            resp = requests.post(f"{API_BASE}/register",
+                json={"email": email, "password": "Test123!",
+                      "behavioral": {
+                          "typing_variance_ms": 150,
+                          "time_to_complete_sec": 30,
+                          "mouse_move_count": 40,
+                          "keypress_count": 80,
+                      }},
                 headers={"X-Forwarded-For": countries[0][0]},
                 timeout=5)
             print(f"  ✓ Registered from {countries[0][1]}")
@@ -175,7 +183,7 @@ class HackathonDemo:
         for ip, country in countries[1:]:
             try:
                 resp = requests.post(f"{API_BASE}/login",
-                    json={"username": email, "password": "Test123!"},
+                    json={"email": email, "password": "Test123!"},
                     headers={"X-Forwarded-For": ip},
                     timeout=5)
                 print(f"  ⚠ Login attempt from {country} — flagged as geodrift")
