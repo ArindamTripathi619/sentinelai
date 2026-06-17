@@ -71,8 +71,9 @@ def scenario_bot_wave():
     BOT_IP = "192.168.100.99"  # Same IP for all
     flagged = 0
 
+    ts = int(time.time())
     for i in range(1, 16):
-        email = f"user{i}@temp.com"
+        email = f"bw{i}_{ts}@temp.com"
         payload = {
             "email": email,
             "password": "password123",
@@ -120,32 +121,40 @@ def scenario_bot_wave():
 def scenario_geo_drift(email: str = None, password: str = None):
     header("GEO DRIFT -- Session Hijack Simulation")
 
-    # Use a known seeded user or default demo credentials
-    if not email:
-        email = "arjun.sharma@gmail.com"
-    if not password:
-        password = "Demo@abc12345"
-
     INDIA_IP   = "103.21.58.12"   # India
     GERMANY_IP = "85.208.96.1"    # Germany
 
+    # Register a fresh account from India IP — avoids password mismatch on seeded users
+    ts = int(time.time())
+    if not email:
+        email = f"traveler_{ts}@demo.local"
+    if not password:
+        password = "Demo@abc12345"
+
     print(f"  Account: {email}")
-    print(f"  Step 1: Normal login from India ({INDIA_IP})")
-    time.sleep(1.5)
+    print(f"  Step 1: Register from India ({INDIA_IP})")
+    time.sleep(1)
 
     try:
-        resp1 = requests.post(
-            f"{API_BASE}/login",
-            json={"email": email, "password": password, "ip_address": INDIA_IP,
-                  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"},
+        resp_reg = requests.post(
+            f"{API_BASE}/register",
+            json={"email": email, "password": password,
+                  "behavioral": {
+                      "typing_variance_ms": 150,
+                      "time_to_complete_sec": 30,
+                      "mouse_move_count": 40,
+                      "keypress_count": 80,
+                  }},
+            headers={"X-Forwarded-For": INDIA_IP, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"},
             timeout=3,
         )
-        data1 = resp1.json()
-        success(f"Login from India -- Trust: {data1.get('trust_score', '?')}, OTP: {data1.get('otp_required', '?')}")
+        data_reg = resp_reg.json()
+        success(f"Registered from India -- Trust: {data_reg.get('trust_score', '?')}")
     except Exception as e:
-        warn(f"Login 1 failed: {e}")
+        warn(f"Registration failed: {e}")
+        return
 
-    time.sleep(2)
+    time.sleep(1.5)
     print(f"\n  Step 2: Login from Germany ({GERMANY_IP}) -- 2 minutes later")
     time.sleep(1.5)
 
