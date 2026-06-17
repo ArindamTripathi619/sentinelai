@@ -302,7 +302,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-@limiter.limit("5/minute")  # Max 5 registration attempts per IP per minute
+@limiter.limit("30/minute")  # Max 30 registration attempts per IP per minute
 @router.post("/register")
 async def register(request: Request, db: Session = Depends(get_db)):
     data = await _safe_read_json(request)

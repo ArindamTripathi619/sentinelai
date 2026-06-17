@@ -33,7 +33,7 @@ import httpx
 BACKEND_URL = "http://localhost:9000"
 REGISTRATION_ENDPOINT = f"{BACKEND_URL}/api/register"
 LOGIN_ENDPOINT = f"{BACKEND_URL}/api/login"
-HEALTH_ENDPOINT = f"{BACKEND_URL}/api/health"
+HEALTH_ENDPOINT = f"{BACKEND_URL}/health"
 
 # Metrics collection
 metrics = {

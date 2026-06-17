@@ -20,6 +20,8 @@ def build_engine(database_url: str):
     else:
         engine_kwargs["pool_pre_ping"] = True
         engine_kwargs["pool_recycle"] = int(os.getenv("DB_POOL_RECYCLE", "3600"))
+        engine_kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "20"))
+        engine_kwargs["max_overflow"] = int(os.getenv("DB_POOL_OVERFLOW", "20"))
 
     return create_engine(database_url, **engine_kwargs)
 

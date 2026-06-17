@@ -20,6 +20,7 @@ def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_
     
     quarantined = db.query(User).filter(User.status == "quarantined").count()
     blocked = db.query(User).filter(User.status == "blocked").count()
+    active_alerts = db.query(Alert).filter(Alert.resolved == False).count()
     
     users = db.query(User).all()
     avg_trust_score = sum(u.trust_score for u in users) / len(users) if users else 0
@@ -30,8 +31,18 @@ def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_
         "bot_waves_detected": bot_waves_detected,
         "quarantined": quarantined,
         "blocked": blocked,
+        "active_alerts": active_alerts,
         "avg_trust_score": round(avg_trust_score, 1)
     }
+
+def _parse_bucket_seconds(bucket: str) -> int:
+    unit = bucket[-3:] if bucket.endswith("min") else bucket[-1:]
+    val = int(bucket[:-3] if bucket.endswith("min") else bucket[:-1])
+    if unit == "min":
+        return val * 60
+    elif unit == "h":
+        return val * 3600
+    return val
 
 @router.get("/velocity")
 def velocity(
@@ -41,34 +52,35 @@ def velocity(
     current_user: User = Depends(get_current_user),
     _admin: User = Depends(require_admin),
 ):
-    # window can be 1h, 6h, 24h
     now = datetime.utcnow()
-    if window == "6h":
-        start_time = now - timedelta(hours=6)
-    elif window == "24h":
-        start_time = now - timedelta(hours=24)
-    else:
-        start_time = now - timedelta(hours=1)
-        
-    # Get all registrations in this window
-    regs = db.query(User).filter(User.registered_at >= start_time).order_by(User.registered_at.asc()).all()
-    
-    # Bucket them (simplified logic for now)
-    data = []
-    # Just return some dummy buckets if no data for chart visibility
-    if not regs:
-        data = [{"timestamp": (now - timedelta(minutes=1)).isoformat() + "Z", "registrations": 0}]
-    else:
-         for r in regs:
-             data.append({"timestamp": r.registered_at.isoformat() + "Z", "registrations": 1})
+    window_seconds = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}.get(window, 3600)
+    start_time = now - timedelta(seconds=window_seconds)
+    bucket_seconds = _parse_bucket_seconds(bucket)
 
-    spike_detected = len(regs) > 50 # Example threshold
+    regs = db.query(User.registered_at).filter(User.registered_at >= start_time).order_by(User.registered_at.asc()).all()
+
+    buckets = {}
+    bucket_count = (window_seconds + bucket_seconds - 1) // bucket_seconds
+    for i in range(bucket_count):
+        ts = start_time + timedelta(seconds=i * bucket_seconds)
+        buckets[int(ts.timestamp())] = {"timestamp": ts.isoformat() + "Z", "registrations": 0}
+
+    for (reg_ts,) in regs:
+        bkey = int((reg_ts.timestamp() // bucket_seconds) * bucket_seconds)
+        if bkey not in buckets:
+            ts = datetime.fromtimestamp(bkey)
+            buckets[bkey] = {"timestamp": ts.isoformat() + "Z", "registrations": 0}
+        buckets[bkey]["registrations"] += 1
+
+    data = sorted(buckets.values(), key=lambda x: x["timestamp"])
+    spike_threshold = max(10, int(window_seconds / 60 * 0.5))
+    spike_detected = any(d["registrations"] > spike_threshold for d in data)
     
     return {
         "window": window,
         "data": data,
         "spike_detected": spike_detected,
-        "spike_at": now.isoformat() + "Z" if spike_detected else None
+        "spike_at": max((d["timestamp"] for d in data if d["registrations"] > spike_threshold), default=None)
     }
 
 @router.get("/trust-distribution")

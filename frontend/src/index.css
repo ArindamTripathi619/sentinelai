@@ -4,6 +4,117 @@
 
 @layer base {
   body {
-    @apply bg-gray-900 text-white font-sans antialiased;
+    @apply bg-surface text-white antialiased;
+    font-family: '"DM Sans", system-ui, sans-serif';
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-[#07070d];
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-[#2a2a4a] rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-[#00f0ff]/30;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-[#1a1a2e]/40 backdrop-blur-xl border border-[#2a2a4a]/50 rounded-xl shadow-glass;
+  }
+
+  .glass-card-strong {
+    @apply bg-[#1a1a2e]/60 backdrop-blur-xl border border-[#2a2a4a]/60 rounded-xl shadow-glass;
+  }
+
+  .glass-panel {
+    background: rgba(10, 10, 15, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(0, 240, 255, 0.05);
+  }
+
+  .scanline-overlay {
+    background: linear-gradient(to bottom, transparent 50%, rgba(0, 240, 255, 0.02) 50%);
+    background-size: 100% 4px;
+    pointer-events: none;
+  }
+
+  .gradient-border {
+    border-image: linear-gradient(135deg, rgba(0, 240, 255, 0.3), rgba(255, 0, 228, 0.2)) 1;
+  }
+
+  .input-cyber {
+    @apply w-full bg-[#07070d]/80 border border-[#2a2a4a]/60 text-white rounded-lg px-4 py-2.5 
+           placeholder:text-gray-600 focus:outline-none focus:border-[#00f0ff]/50 focus:ring-1 focus:ring-[#00f0ff]/30 
+           transition-all duration-300;
+  }
+
+  .input-cyber-icon {
+    @apply input-cyber pl-10;
+  }
+
+  .btn-cyber-primary {
+    @apply w-full relative overflow-hidden rounded-lg py-2.5 px-4 font-semibold text-[#0a0a0f]
+           bg-[#00f0ff] hover:shadow-neon-cyan transition-all duration-300
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-cyber-primary::before {
+    content: '';
+    @apply absolute inset-0 opacity-0 bg-white/20 transition-opacity duration-300;
+  }
+
+  .btn-cyber-primary:hover::before {
+    @apply opacity-100;
+  }
+
+  .badge-cyber {
+    @apply text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border;
+  }
+
+  .badge-cyan {
+    @apply badge-cyber bg-[#00f0ff]/10 text-[#00f0ff] border-[#00f0ff]/30;
+  }
+
+  .badge-magenta {
+    @apply badge-cyber bg-[#ff00e4]/10 text-[#ff00e4] border-[#ff00e4]/30;
+  }
+
+  .badge-amber {
+    @apply badge-cyber bg-[#ffbf00]/10 text-[#ffbf00] border-[#ffbf00]/30;
+  }
+
+  .badge-red {
+    @apply badge-cyber bg-[#ff3355]/10 text-[#ff3355] border-[#ff3355]/30;
+  }
+
+  .badge-green {
+    @apply badge-cyber bg-[#00ff87]/10 text-[#00ff87] border-[#00ff87]/30;
+  }
+}
+
+@layer utilities {
+  .bg-cyber-grid-overlay {
+    background-image: 
+      linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  .text-glow-cyan {
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 30px rgba(0, 240, 255, 0.2);
+  }
+
+  .text-glow-magenta {
+    text-shadow: 0 0 10px rgba(255, 0, 228, 0.5), 0 0 30px rgba(255, 0, 228, 0.2);
   }
 }

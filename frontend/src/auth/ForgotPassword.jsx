@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Shield, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
 import { api } from '../lib/api';
@@ -25,86 +25,124 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-500/20 blur-[120px] rounded-full"></div>
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-purple-500/20 blur-[120px] rounded-full"></div>
+    <div className="min-h-screen bg-surface text-slate-200 font-body flex flex-col items-center justify-center overflow-hidden relative">
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,240,255,0.06)_0%,transparent_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
       </div>
 
-      <div className="z-10 w-full max-w-md bg-gray-800/50 backdrop-blur-xl border border-gray-700 p-8 rounded-2xl shadow-2xl">
-        <div className="flex flex-col items-center mb-8">
-          <div className="bg-blue-500/20 p-3 rounded-full mb-4 ring-1 ring-blue-500/50">
-            <Shield className="w-8 h-8 text-blue-400" />
-          </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">SentinelAI</h1>
-          <p className="text-gray-400 mt-2 text-sm text-center">
-            Reset your password
-          </p>
+      <div className="fixed top-6 left-6 z-20 hidden lg:block pointer-events-none">
+        <div className="font-headline text-[10px] text-primary/40 leading-tight">
+          System_Status: Standby<br />
+          Node: AUTH_GATE_02<br />
+          {new Date().toISOString().slice(11, 19)} UTC
         </div>
+      </div>
+      <div className="fixed top-6 right-6 z-20 hidden lg:block pointer-events-none">
+        <div className="font-headline text-[10px] text-primary/40 text-right leading-tight uppercase">
+          CLEARANCE: LEVEL_0<br />
+          CONN: ENCRYPTED<br />
+          PROTO: TLS_1.3
+        </div>
+      </div>
 
-        {success ? (
-          <div className="text-center">
-            <div className="bg-emerald-500/20 p-3 rounded-full mx-auto mb-4 w-16 h-16 flex items-center justify-center ring-1 ring-emerald-500/50">
-              <CheckCircle className="w-8 h-8 text-emerald-400" />
+      <main className="relative z-10 w-full max-w-md px-6">
+        <div className="glass-panel p-8 rounded-lg relative border-t-2 border-primary/50">
+          <div className="absolute -top-px left-1/2 -translate-x-1/2 w-3/4 h-px bg-gradient-to-r from-transparent via-primary to-transparent shadow-[0_0_15px_#00f0ff]" />
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full border border-primary/30 bg-primary/5 mb-4 relative">
+              <Shield className="w-8 h-8 text-primary" />
+              <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping opacity-20" />
             </div>
-            <p className="text-emerald-300 font-medium mb-2">Check your email</p>
-            <p className="text-gray-400 text-sm mb-6">
-              If that email is registered, we've sent a password reset link. It expires in 15 minutes.
+            <h1 className="font-headline text-3xl font-black tracking-tighter text-white uppercase italic">
+              SENTINEL<span className="text-primary italic">AI</span>
+            </h1>
+            <p className="font-label text-xs tracking-widest text-primary/60 uppercase mt-1">
+              RESET PASSWORD
             </p>
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 font-medium transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Login
-            </Link>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                {error}
-              </div>
-            )}
 
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-300">Email Address</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-500" />
+          {success ? (
+            <div className="text-center w-full space-y-6">
+              <div className="relative mx-auto w-16 h-16 flex items-center justify-center">
+                <div className="absolute inset-0 bg-safe/20 blur-xl rounded-full" />
+                <div className="relative bg-safe/10 rounded-full w-16 h-16 flex items-center justify-center ring-1 ring-safe/40">
+                  <CheckCircle className="w-8 h-8 text-safe" />
                 </div>
-                <input
-                  type="email"
-                  required
-                  className="w-full bg-gray-900/50 border border-gray-700 text-white rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
               </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-lg py-2.5 px-4 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                <span>Send Reset Link</span>
-              )}
-            </button>
-
-            <div className="text-center text-sm text-gray-400">
-              <Link to="/login" className="text-blue-400 hover:text-blue-300 font-medium transition-colors inline-flex items-center gap-1">
-                <ArrowLeft className="w-4 h-4" />
-                Back to Login
+              <p className="text-safe font-medium text-sm">Check your email</p>
+              <p className="text-slate-500 text-[11px]">
+                If that email is registered, we've sent a password reset link.
+              </p>
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-2 text-[10px] font-bold tracking-widest text-slate-500 hover:text-primary transition-colors uppercase"
+              >
+                <ArrowLeft className="w-3 h-3" />
+                Back to Command Center Login
               </Link>
             </div>
-          </form>
-        )}
-      </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="w-full space-y-6">
+              {error && (
+                <div className="rounded-lg border border-critical/30 bg-critical/10 px-4 py-3 text-xs text-critical flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-critical animate-pulse" />
+                  {error}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold text-slate-500 tracking-[0.2em] ml-1 uppercase">OPERATOR_EMAIL</label>
+                <div className="relative group">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary/40 group-focus-within:text-primary transition-colors" />
+                  <input
+                    type="email"
+                    required
+                    className="block w-full pl-10 pr-4 py-3 bg-slate-950/60 border border-slate-800 focus:border-primary focus:ring-1 focus:ring-primary/20 text-primary placeholder:text-slate-700 text-sm transition-all outline-none"
+                    placeholder="OPERATOR@SENTINEL.AI"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-4 bg-primary text-slate-950 font-black tracking-widest text-xs uppercase transition-all active:scale-[0.98] hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <div className="w-4 h-4 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span>SEND RESET LINK</span>
+                    <Shield className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          <div className="pt-2 w-full flex flex-col items-center">
+            <Link
+              to="/login"
+              className="text-[10px] font-bold tracking-widest text-slate-500 hover:text-primary transition-colors uppercase border-b border-transparent hover:border-primary/50 pb-1"
+            >
+              Back to Command Center Login
+            </Link>
+          </div>
+        </div>
+      </main>
+
+      <footer className="fixed bottom-8 left-0 w-full z-20 flex justify-center items-center pointer-events-none">
+        <div className="flex items-center space-x-3 px-4 py-2 bg-surface/60 backdrop-blur-sm border border-slate-800/50">
+          <span className="flex h-2 w-2 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-safe opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-safe" />
+          </span>
+          <span className="text-[9px] font-bold tracking-[0.3em] text-slate-400 uppercase">BEHAVIORAL PROFILING ACTIVE</span>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -13,6 +13,8 @@ Base URL (local): `http://localhost:9000/api`
 ### POST `/api/register`
 Register a new user. Accepts behavioral payload alongside credentials.
 
+Rate limit: 5 requests/minute/IP
+
 **Request Body:**
 ```json
 {
@@ -27,30 +29,38 @@ Register a new user. Accepts behavioral payload alongside credentials.
 }
 ```
 
-**Response — 201 Created:**
+The `behavioral` object also accepts these optional fields:
+`sessions_tempo_sec`, `mouse_entropy_score`, `fill_order_score`.
+
+**Response — 200 OK:**
 ```json
 {
-  "user_id": "uuid-string",
+  "message": "Registration successful",
   "trust_score": 82,
   "status": "active",
-  "message": "Registration successful"
+  "triggered_rules": [],
+  "rule_penalty": 0,
+  "behavioral_penalty": 0,
+  "ml_penalty": 0,
+  "recommendation": "allow"
 }
 ```
 
-**Response — 400 Bad Request (bot detected):**
+If trust score < 40, user is created with `status: "quarantined"` but the endpoint **still returns 200** with the same shape.
+
+**Response — 400 Bad Request:**
 ```json
 {
-  "user_id": "uuid-string",
-  "trust_score": 18,
-  "status": "quarantined",
-  "message": "Account flagged for review"
+  "detail": "Missing email or password"
 }
 ```
 
 ---
 
 ### POST `/api/login`
-Login endpoint. Returns token or triggers OTP based on trust score.
+Login endpoint. Returns token or triggers progressive auth (OTP → captcha → block) based on trust score.
+
+Rate limit: 10 requests/minute/IP
 
 **Request Body:**
 ```json
@@ -62,34 +72,96 @@ Login endpoint. Returns token or triggers OTP based on trust score.
 }
 ```
 
-**Response — 200 OK (high trust, direct login):**
+**Response — 200 OK (high trust, direct login, `>= 70`):**
 ```json
 {
   "token": "eyJhbGci...",
+  "token_type": "bearer",
   "trust_score": 85,
   "otp_required": false,
-  "user_id": "uuid-string"
+  "user_id": "uuid-string",
+  "recommendation": "allow"
 }
 ```
 
-**Response — 200 OK (medium trust, OTP required):**
+**Response — 200 OK (medium trust, OTP required, `40–69`):**
 ```json
 {
   "token": null,
   "trust_score": 52,
   "otp_required": true,
   "otp_session_id": "temp-session-uuid",
-  "user_id": "uuid-string"
+  "user_id": "uuid-string",
+  "recommendation": "otp"
 }
 ```
 
-**Response — 403 Forbidden (quarantined):**
+**Response — 200 OK (low trust, CAPTCHA required, `20–39`):**
 ```json
 {
-  "error": "Account suspended pending review",
-  "trust_score": 12
+  "token": null,
+  "trust_score": 25,
+  "captcha_required": true,
+  "captcha_token": "base64-signed-challenge",
+  "captcha_prompt": "A3XK9P",
+  "user_id": "uuid-string",
+  "recommendation": "captcha"
 }
 ```
+
+**Response — 200 OK (quarantined/blocked, `< 20`):**
+```json
+{
+  "token": null,
+  "trust_score": 12,
+  "otp_required": false,
+  "is_blocked": true,
+  "is_hard_block": false,
+  "user_id": "uuid-string",
+  "recommendation": "quarantine",
+  "message": "Account under review. An admin will review your account status."
+}
+```
+If the user was already `blocked` before this login, `is_hard_block` is `true` and the message changes to `"Account suspended."`.
+
+**Response — 401 Unauthorized (wrong credentials):**
+```json
+{
+  "detail": "Invalid email or password"
+}
+```
+
+---
+
+### POST `/api/captcha/verify`
+Verify a CAPTCHA challenge and receive a JWT token. Used after login returns `captcha_required: true`.
+
+**Request Body:**
+```json
+{
+  "captcha_token": "base64-signed-challenge",
+  "captcha_answer": "A3XK9P"
+}
+```
+
+**Response — 200 OK:**
+```json
+{
+  "token": "eyJhbGci...",
+  "token_type": "bearer",
+  "user_id": "uuid-string",
+  "message": "Captcha verified successfully"
+}
+```
+
+**Response — 400 Bad Request:**
+```json
+{
+  "detail": "Missing captcha_token or captcha_answer"
+}
+```
+
+CAPTCHA tokens expire in 300 seconds (5 minutes).
 
 ---
 
@@ -108,14 +180,18 @@ Send OTP to the user's registered email.
 ```json
 {
   "message": "OTP sent successfully",
-  "expires_in_seconds": 300
+  "expires_in_seconds": 300,
+  "delivery_status": "sent",
+  "delivery_attempts": 1
 }
 ```
+
+If `SMTP_STRICT_MODE=1` and delivery fails, returns **503** instead.
 
 ---
 
 ### POST `/api/otp/verify`
-Verify the OTP entered by the user.
+Verify the OTP entered by the user and receive a JWT token.
 
 **Request Body:**
 ```json
@@ -129,6 +205,7 @@ Verify the OTP entered by the user.
 ```json
 {
   "token": "eyJhbGci...",
+  "token_type": "bearer",
   "user_id": "uuid-string",
   "message": "Login successful"
 }
@@ -137,7 +214,60 @@ Verify the OTP entered by the user.
 **Response — 400 Bad Request:**
 ```json
 {
-  "error": "Invalid or expired OTP"
+  "detail": "Invalid or expired OTP"
+}
+```
+Other possible `detail` values: `"OTP already used"`, `"OTP expired"`, `"Invalid OTP code"`, `"Invalid OTP session"`.
+
+---
+
+### POST `/api/forgot-password`
+Request a password reset email. Always returns 200 to prevent email enumeration.
+
+Rate limit: 3 requests/minute/IP
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response — 200 OK:**
+```json
+{
+  "message": "If that email is registered, you will receive a reset link."
+}
+```
+
+Reset tokens expire in 15 minutes.
+
+---
+
+### POST `/api/reset-password`
+Verify reset token and update password. Token is the raw token from the reset email.
+
+Rate limit: 5 requests/minute/IP
+
+**Request Body:**
+```json
+{
+  "token": "raw-token-from-reset-email",
+  "new_password": "newSecurePassword123"
+}
+```
+
+**Response — 200 OK:**
+```json
+{
+  "message": "Password reset successful. You can now log in with your new password."
+}
+```
+
+**Response — 400 Bad Request:**
+```json
+{
+  "detail": "Invalid or expired reset token."
 }
 ```
 
@@ -208,24 +338,24 @@ Get full activity timeline for forensic view.
 ```json
 {
   "user_id": "uuid-string",
+  "user_email": "user@example.com",
   "timeline": [
     {
       "event_id": "evt-uuid",
       "action": "register",
+      "action_type": "register",
       "timestamp": "2025-04-15T10:23:00Z",
       "ip_address": "203.0.113.42",
       "country": "India",
       "user_agent": "Mozilla/5.0 ...",
-      "trust_score_at_time": 18
-    },
-    {
-      "event_id": "evt-uuid-2",
-      "action": "login",
-      "timestamp": "2025-04-15T10:25:00Z",
-      "ip_address": "85.208.96.1",
-      "country": "Germany",
-      "user_agent": "Python-requests/2.31",
-      "trust_score_at_time": 8
+      "trust_score_at_time": 18,
+      "description": "Registration completed; triggered speed_bot, email_pattern",
+      "metadata": {
+        "triggered_rules": ["speed_bot", "email_pattern"],
+        "rule_penalty": 45,
+        "behavioral_penalty": 10,
+        "ml_penalty": 15
+      }
     }
   ]
 }
@@ -273,7 +403,7 @@ Get recent security alerts. Dashboard polls this every 4 seconds.
       "alert_id": "alt-uuid",
       "type": "bot_wave",
       "severity": "critical",
-      "description": "15 registrations detected in 8 seconds from IP block 192.168.x.x",
+      "description": "Rule triggered: platform_velocity_spike for user@example.com",
       "affected_user_ids": ["uuid1", "uuid2"],
       "timestamp": "2025-04-16T09:45:00Z",
       "resolved": false
@@ -282,7 +412,7 @@ Get recent security alerts. Dashboard polls this every 4 seconds.
       "alert_id": "alt-uuid-2",
       "type": "geo_drift",
       "severity": "high",
-      "description": "user@example.com logged in from India then Germany within 47 minutes",
+      "description": "Rule triggered: geo_drift for user@example.com",
       "affected_user_ids": ["uuid-string"],
       "timestamp": "2025-04-16T09:12:00Z",
       "resolved": false
@@ -291,12 +421,12 @@ Get recent security alerts. Dashboard polls this every 4 seconds.
 }
 ```
 
-Alert types: `bot_wave`, `geo_drift`, `speed_bot`, `email_pattern`, `duplicate_device`, `velocity_spike`
+Alert types: `bot_wave`, `geo_drift`, `speed_bot`, `email_pattern`, `duplicate_device`, `velocity_spike`, `ml_anomaly`, `captcha_challenge`, `trust_quarantine`
 
 ---
 
 ### PATCH `/api/alerts/{alert_id}/resolve`
-Mark an alert as resolved.
+Mark an alert as resolved. The backend ignores the request body and always sets `resolved: true`.
 
 **Response — 200 OK:**
 ```json
@@ -342,8 +472,8 @@ Trust score distribution for histogram chart.
   "bands": [
     { "label": "Safe (80-100)",       "count": 89, "color": "green" },
     { "label": "Caution (60-79)",     "count": 23, "color": "yellow" },
-    { "label": "Suspicious (40-59)", "count": 12, "color": "orange" },
-    { "label": "Quarantined (20-39)","count": 7,  "color": "red" },
+    { "label": "Suspicious (40-59)",  "count": 12, "color": "orange" },
+    { "label": "Quarantined (20-39)", "count": 7,  "color": "red" },
     { "label": "Blocked (0-19)",      "count": 3,  "color": "darkred" }
   ],
   "total": 134
@@ -375,6 +505,8 @@ Top-level KPI summary for the dashboard header cards.
 Score a user's behavioral data. Called internally during register/login.
 Can also be called directly by Akash's test scripts.
 
+**Requires JWT auth.** `Authorization: Bearer <token>`
+
 **Request Body:**
 ```json
 {
@@ -388,17 +520,29 @@ Can also be called directly by Akash's test scripts.
   "ip_address": "192.168.1.1",
   "email": "user1@temp.com",
   "user_agent": "python-requests/2.31.0",
-  "registrations_from_ip_last_hour": 14
+  "registrations_from_ip_last_hour": 14,
+  "accounts_with_same_ua_today": 0,
+  "event_type": "register",
+  "registrations_per_minute": 0
 }
 ```
+
+Optional fields for login scoring:
+- `current_country` (str)
+- `last_country` (str)
+- `minutes_since_last_login` (float)
 
 **Response — 200 OK:**
 ```json
 {
   "trust_score": 12,
   "ml_anomaly_score": -0.58,
+  "rule_penalty": 45,
+  "behavioral_penalty": 10,
+  "ml_penalty": 5,
   "triggered_rules": ["speed_bot", "email_pattern", "velocity_exceeded"],
-  "recommendation": "quarantine"
+  "recommendation": "quarantine",
+  "event_type": "register"
 }
 ```
 
@@ -406,14 +550,16 @@ Can also be called directly by Akash's test scripts.
 
 ## 🔑 Auth Notes
 
-- All `/api/admin/*` and analytics routes require `Authorization: Bearer <JWT>` header
-- JWT expires in 24 hours
+- All `/api/users/*`, `/api/alerts/*`, `/api/analytics/*`, and `/api/score` routes require `Authorization: Bearer <JWT>` header
+- JWT expires in 24 hours (configurable via `JWT_EXPIRE_HOURS`)
 - OTP codes expire in 5 minutes
-- Trust score thresholds:
-  - `> 70` → direct login, no OTP
-  - `40–70` → OTP required
-  - `20–40` → OTP + CAPTCHA + admin alert
-  - `< 20` → quarantine, login blocked
+- CAPTCHA tokens expire in 5 minutes
+- Trust score thresholds (defined in `scorer.py:get_recommendation`):
+  - `>= 70` → direct login (`recommendation: "allow"`)
+  - `>= 40` → OTP required (`recommendation: "otp"`)
+  - `>= 20` → CAPTCHA challenge (`recommendation: "captcha"`)
+  - `< 20` → quarantine, login blocked (`recommendation: "quarantine"`)
+- Rate limits: 5 reg/min/IP, 10 login/min/IP, 3 forgot-password/min/IP, 5 reset-password/min/IP
 
 ---
 

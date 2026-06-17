@@ -18,6 +18,7 @@ def get_users(
     status: Optional[str] = None,
     min_trust: Optional[int] = None,
     max_trust: Optional[int] = None,
+    q: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db), 
@@ -32,6 +33,8 @@ def get_users(
         query = query.filter(User.trust_score >= min_trust)
     if max_trust is not None:
         query = query.filter(User.trust_score <= max_trust)
+    if q:
+        query = query.filter(User.email.ilike(f'%{q}%'))
         
     total = query.count()
     users = query.offset(offset).limit(limit).all()
