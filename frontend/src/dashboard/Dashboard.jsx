@@ -4,12 +4,11 @@ import {
   Tooltip as RechartsTooltip, ResponsiveContainer
 } from 'recharts';
 import {
-  Shield, ShieldAlert, Users, Activity, AlertTriangle, Search,
-  LogOut, LayoutDashboard, Clock, Bell, ChevronRight, Settings,
-  Terminal, GitBranch, Zap, Globe, UserCheck
+  Shield, ShieldAlert, Users, Activity, Search,
+  LogOut, LayoutDashboard, Clock, Bell, Settings,
+  Terminal, GitBranch, TrendingUp, Zap, Globe, Eye
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye } from 'lucide-react';
 import { api, clearUserSession, getAuthToken } from '../lib/api';
 
 const NAV_ITEMS = [
@@ -204,11 +203,20 @@ export default function Dashboard() {
       }
     };
 
+    let timeoutId;
+
+    const scheduleNext = () => {
+      timeoutId = setTimeout(async () => {
+        await loadDashboard();
+        if (mounted) scheduleNext();
+      }, 4000);
+    };
+
     loadDashboard();
-    const interval = setInterval(loadDashboard, 4000);
+    scheduleNext();
     return () => {
       mounted = false;
-      clearInterval(interval);
+      clearTimeout(timeoutId);
     };
   }, [currentPage, pageSize, timeWindow, searchQuery, navigate]);
 
@@ -582,20 +590,25 @@ export default function Dashboard() {
                   <div className="relative w-44 h-44 mb-6">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie
-                          data={trustDistribution.length > 0 ? trustDistribution : [{ label: 'No data', count: 1, color: '#1a1a2e' }]}
-                          cx="50%" cy="50%"
-                          innerRadius={32}
-                          outerRadius={52}
-                          paddingAngle={0}
-                          dataKey="count"
-                          nameKey="label"
-                          stroke="none"
-                        >
-                          {trustDistribution.map((entry, idx) => (
-                            <Cell key={idx} fill={entry.color} />
-                          ))}
-                        </Pie>
+                        {(() => {
+                        const pieData = trustDistribution.length > 0 ? trustDistribution : [{ label: 'No data', count: 1, color: '#1a1a2e' }];
+                        return (
+                          <Pie
+                            data={pieData}
+                            cx="50%" cy="50%"
+                            innerRadius={32}
+                            outerRadius={52}
+                            paddingAngle={0}
+                            dataKey="count"
+                            nameKey="label"
+                            stroke="none"
+                          >
+                            {pieData.map((entry, idx) => (
+                              <Cell key={idx} fill={entry.color} />
+                            ))}
+                          </Pie>
+                        );
+                      })()}
                         <RechartsTooltip
                           contentStyle={{ backgroundColor: '#0a0a0f', border: '1px solid rgba(0,240,255,0.2)', borderRadius: '0.125rem' }}
                           formatter={(value, name) => [`${value} nodes`, name]}
@@ -650,7 +663,7 @@ export default function Dashboard() {
                               alert.type?.toLowerCase() === 'geo_drift' ? 'text-warning' :
                               alert.type?.toLowerCase() === 'speed_bot' ? 'text-critical' : 'text-accent'
                             }`}>
-                              {alert.type?.replace(/_/g, '_') || 'alert'}
+                              {alert.type?.replace(/_/g, ' ') || 'alert'}
                             </span>
                             <span className="text-[9px] text-slate-500 flex-shrink-0">{alert.time}</span>
                           </div>

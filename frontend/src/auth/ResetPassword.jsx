@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowLeft, CheckCircle, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { api } from '../lib/api';
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
-  const token = searchParams.get('token');
+  const [token, setToken] = useState(() => {
+    const t = searchParams.get('token');
+    if (t && typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, '/reset-password');
+    }
+    return t;
+  });
   const navigate = useNavigate();
 
   const [newPassword, setNewPassword] = useState('');

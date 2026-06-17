@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   X, Loader, AlertCircle, Clock, MapPin, Zap, History,
   ChevronRight, ArrowLeft, Filter, Download, CalendarRange, SlidersHorizontal,
-  Shield, LayoutDashboard, Users, Activity, Bell, LogOut, Eye, UserCheck
+  Shield, LayoutDashboard, Users, Activity, Bell, Eye, UserCheck
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -47,12 +47,23 @@ export default function UserTimeline({ userId, userEmail, onClose, mode = 'modal
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [resolvedUserEmail, setResolvedUserEmail] = useState(userEmail || '');
+
+  useEffect(() => {
+    if (userEmail) setResolvedUserEmail(userEmail);
+  }, [userEmail]);
   const [userDetail, setUserDetail] = useState(null);
   const [actionFilter, setActionFilter] = useState('all');
   const [scoreFilter, setScoreFilter] = useState('all');
   const [windowFilter, setWindowFilter] = useState('all');
 
   useEffect(() => {
+    if (!userId) {
+      setTimeline([]);
+      setUserDetail(null);
+      setLoading(false);
+      return;
+    }
+
     const fetchTimeline = async () => {
       try {
         setLoading(true);
@@ -77,9 +88,7 @@ export default function UserTimeline({ userId, userEmail, onClose, mode = 'modal
       }
     };
 
-    if (userId) {
-      fetchTimeline();
-    }
+    fetchTimeline();
   }, [userId, userEmail]);
 
   const isPageMode = mode === 'page';

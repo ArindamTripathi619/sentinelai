@@ -17,7 +17,9 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const [currentTime, setCurrentTime] = useState('20:44:12');
+  const [currentTime, setCurrentTime] = useState(
+    () => new Date().toISOString().slice(11, 19) + ' UTC'
+  );
   const navigate = useNavigate();
   const getBehavioralPayload = useBehavioral();
 
@@ -50,10 +52,16 @@ export default function Login() {
         setInfo('OTP required — code sent to your session.');
 
         if (response.data.otp_session_id) {
-          await api.post('/otp/send', {
-            otp_session_id: response.data.otp_session_id,
-            email,
-          });
+          try {
+            await api.post('/otp/send', {
+              otp_session_id: response.data.otp_session_id,
+              email,
+            });
+          } catch (sendErr) {
+            setError('OTP delivery failed. Please try again.');
+            setIsLoading(false);
+            return;
+          }
         }
       } else if (response.data.captcha_required) {
         setRequiresCaptcha(true);
@@ -85,6 +93,11 @@ export default function Login() {
         otp_code: otpCode,
       });
 
+      if (!response.data.token) {
+        setError('Authentication failed — no token received.');
+        setIsLoading(false);
+        return;
+      }
       setUserSession({ token: response.data.token, userId: response.data.user_id });
       navigate(isAdmin() ? '/dashboard' : '/events', { replace: true });
     } catch (err) {
@@ -105,6 +118,11 @@ export default function Login() {
         captcha_answer: captchaAnswer,
       });
 
+      if (!response.data.token) {
+        setError('Authentication failed — no token received.');
+        setIsLoading(false);
+        return;
+      }
       setUserSession({ token: response.data.token, userId: response.data.user_id });
       navigate(isAdmin() ? '/dashboard' : '/events', { replace: true });
     } catch (err) {

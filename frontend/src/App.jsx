@@ -1,5 +1,5 @@
-import React from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import Login from './auth/Login'
 import Register from './auth/Register'
 import ForgotPassword from './auth/ForgotPassword'
@@ -9,10 +9,18 @@ import Dashboard from './dashboard/Dashboard'
 import UserTimeline from './dashboard/UserTimeline'
 import AdminGuard from './dashboard/AdminGuard'
 import { getAuthToken, isAdmin } from './lib/api'
-import { useNavigate, useParams } from 'react-router-dom'
 
 function ProtectedRoute({ children }) {
-  return getAuthToken() ? children : <Navigate to="/login" replace />
+  const [hasToken, setHasToken] = useState(getAuthToken())
+
+  useEffect(() => {
+    setHasToken(getAuthToken())
+    const handler = () => setHasToken(getAuthToken())
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  }, [])
+
+  return hasToken ? children : <Navigate to="/login" replace />
 }
 
 function UserTimelineRoute() {

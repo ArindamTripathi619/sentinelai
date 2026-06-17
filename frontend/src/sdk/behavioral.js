@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 /**
  * SentinelAI — Behavioral Fingerprinting SDK
  * Owner: Debarshi
@@ -193,12 +195,10 @@ function _computeFillOrderScore(sequence) {
  *   // then on submit: const behavioral = getPayload();
  */
 export function useBehavioral() {
-  // Import React at the top of your component file
-  // This function returns getPayload bound to the tracking session
-
-  if (typeof window !== "undefined") {
+  useEffect(() => {
     startTracking();
-  }
+    return () => stopTracking();
+  }, []);
 
   return getPayload;
 }

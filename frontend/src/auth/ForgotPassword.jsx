@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Shield, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
 import { api } from '../lib/api';
@@ -8,6 +8,14 @@ export default function ForgotPassword() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const cooldownRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,6 +25,13 @@ export default function ForgotPassword() {
     try {
       await api.post('/forgot-password', { email });
       setSuccess(true);
+      setCooldown(30);
+      cooldownRef.current = setInterval(() => {
+        setCooldown(c => {
+          if (c <= 1) { clearInterval(cooldownRef.current); return 0; }
+          return c - 1;
+        });
+      }, 1000);
     } catch (err) {
       setError(err?.response?.data?.detail || 'Something went wrong. Please try again.');
     } finally {
@@ -108,14 +123,14 @@ export default function ForgotPassword() {
 
               <button
                 type="submit"
-                disabled={isLoading}
-                className="w-full py-4 bg-primary text-slate-950 font-black tracking-widest text-xs uppercase transition-all active:scale-[0.98] hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center justify-center gap-2"
+                disabled={isLoading || cooldown > 0}
+                className="w-full py-4 bg-primary text-slate-950 font-black tracking-widest text-xs uppercase transition-all active:scale-[0.98] hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <div className="w-4 h-4 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span>SEND RESET LINK</span>
+                    <span>{cooldown > 0 ? `RESEND (${cooldown}s)` : 'SEND RESET LINK'}</span>
                     <Shield className="w-4 h-4" />
                   </>
                 )}

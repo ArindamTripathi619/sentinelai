@@ -22,7 +22,7 @@ export function setAuthToken(token) {
 }
 
 export function getUserId() {
-  return localStorage.getItem('sentinelai_user_id')
+  return localStorage.getItem('sentinelai_user_id') ?? ''
 }
 
 export function setUserSession({ token, userId }) {
@@ -42,7 +42,7 @@ export function isAdmin() {
   if (!token) return false
   try {
     const payload = JSON.parse(atob(token.split('.')[1]))
-    return payload.is_admin === true
+    return payload.is_admin == true
   } catch {
     return false
   }
@@ -55,3 +55,14 @@ api.interceptors.request.use((config) => {
   }
   return config
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      clearUserSession()
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)

@@ -1,9 +1,16 @@
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { clearUserSession, isAdmin } from '../lib/api';
-import { Shield, LogOut, Activity, ArrowLeft } from 'lucide-react';
+import { getAuthToken, clearUserSession, isAdmin } from '../lib/api';
+import { LogOut, Activity, ArrowLeft } from 'lucide-react';
 
 export default function EventsPage() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!getAuthToken()) {
+      navigate('/login', { replace: true });
+    }
+  }, [navigate]);
 
   function handleLogout() {
     clearUserSession();

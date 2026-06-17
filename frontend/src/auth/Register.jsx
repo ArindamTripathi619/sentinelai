@@ -14,9 +14,9 @@ function getPasswordStrength(pw) {
   return score;
 }
 
-const STREGTH_LABELS = ['None', 'Weak', 'Fair', 'Moderate', 'Maximum'];
-const STREGTH_COLORS = ['', 'bg-critical', 'bg-warning', 'bg-warning', 'bg-safe'];
-const SECURITY_LEVELS = ['—', 'Level 0', 'Level 1', 'Level 2', 'Level 3'];
+const STRENGTH_LABELS = ['None', 'Weak', 'Fair', 'Moderate', 'Maximum', 'Maximum'];
+const STRENGTH_COLORS = ['', 'bg-critical', 'bg-warning', 'bg-warning', 'bg-safe', 'bg-safe'];
+const SECURITY_LEVELS = ['—', 'Level 0', 'Level 1', 'Level 2', 'Level 3', 'Level 4'];
 
 export default function Register() {
   const [form, setForm] = useState({ name: '', email: '', company: '', password: '', confirmPassword: '' });
@@ -27,8 +27,8 @@ export default function Register() {
   const navigate = useNavigate();
   const getBehavioralPayload = useBehavioral();
 
-  const strength = getPasswordStrength(form.password);
-  const strengthColor = STREGTH_COLORS[strength];
+  const strength = Math.min(getPasswordStrength(form.password), 5);
+  const strengthColor = STRENGTH_COLORS[strength];
 
   const updateField = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
@@ -51,10 +51,11 @@ export default function Register() {
         email: form.email,
         password: form.password,
         name: form.name,
+        company: form.company,
         behavioralData,
       });
 
-      setSuccess(`Registration complete. Trust score: ${response.data.trust_score}.`);
+      setSuccess(`Registration complete. Trust score: ${response.data.trust_score ?? 'N/A'}.`);
       setTimeout(() => {
         navigate('/login', { replace: true });
       }, 1200);
@@ -194,7 +195,7 @@ export default function Register() {
                     ))}
                   </div>
                   <p className="text-[10px] text-warning uppercase tracking-tighter px-1 flex justify-between">
-                    <span>Entropy: {STREGTH_LABELS[strength]}</span>
+                    <span>Entropy: {STRENGTH_LABELS[strength]}</span>
                     <span>{SECURITY_LEVELS[strength]}</span>
                   </p>
                 </>
