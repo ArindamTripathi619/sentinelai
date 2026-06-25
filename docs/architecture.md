@@ -21,10 +21,9 @@ The score is clamped to [0, 100]. Each layer can independently contribute penalt
 
 | Score | Band | System Action |
 |---|---|---|
-| 80–100 | ✅ Safe | Direct login, no friction |
-| 60–79 | 🟡 Caution | Logged, monitored |
-| 40–59 | 🟠 Suspicious | OTP required |
-| 20–39 | 🔴 High Risk | OTP + CAPTCHA + admin alert |
+| 70–100 | ✅ Safe | Direct login, no friction |
+| 40–69 | 🟠 Suspicious | OTP required |
+| 20–39 | 🔴 High Risk | CAPTCHA + admin alert |
 | 0–19 | ⛔ Critical | Quarantine, login blocked |
 
 ---
@@ -68,7 +67,7 @@ IF email matches regex /user\d+@/ OR domain in disposable_domains_list:
 
 ### Rule: Speed Bot
 ```
-IF time_to_complete_sec < MIN_REGISTRATION_SECONDS (default: 4):
+IF time_to_complete_sec < MIN_REGISTRATION_SECONDS (default: 3.0):
     penalty += 20
 ```
 
@@ -252,7 +251,7 @@ CREATE TABLE otp_sessions (
 |---|---|---|
 | ip-api.com | IP geolocation | ❌ Free, no key |
 | Gmail SMTP | OTP delivery | ✅ App password only |
-| Cloudflare Turnstile | CAPTCHA (optional) | ✅ Free key from dashboard |
+| Text Prompt CAPTCHA | Signed math/word challenge (HMAC) | ❌ Built-in, no key needed |
 
 ---
 

@@ -142,7 +142,7 @@ Google Fonts loaded: Syne (400–800), DM Sans (300–700), JetBrains Mono (400�
 
 ## 4. Login Page (`/login`)
 
-**File:** `src/auth/Login.jsx` (351 lines)
+**File:** `src/auth/Login.jsx` (369 lines)
 
 ### 4.1 Page Layout
 - `min-h-screen bg-surface text-slate-300 font-body flex flex-col overflow-hidden`
@@ -268,7 +268,7 @@ Response handling order:
 
 ## 5. Register Page (`/register`)
 
-**File:** `src/auth/Register.jsx` (269 lines)
+**File:** `src/auth/Register.jsx` (270 lines)
 
 ### 5.1 Layout & Background
 Same structural pattern as Login:
@@ -399,7 +399,7 @@ Same fixed behavioral profiling bar as ForgotPassword.
 
 ## 8. Events Page (`/events`)
 
-**File:** `src/auth/Events.jsx` (50 lines)
+**File:** `src/auth/Events.jsx` (57 lines)
 
 ### 8.1 Current State
 **Placeholder** — cyber styled:
@@ -420,7 +420,7 @@ Landing page for non-admin authenticated users. Event listing not yet implemente
 
 ## 9. Dashboard — Command Center (`/dashboard`)
 
-**File:** `src/dashboard/Dashboard.jsx` (686 lines)
+**File:** `src/dashboard/Dashboard.jsx` (699 lines)
 
 The primary admin interface — a full command center with sidebar nav, pinned header, 4 KPI cards, velocity chart, trust distribution donut, paginated users table, and live alerts panel. All data polls every **4 seconds**.
 
@@ -562,7 +562,7 @@ The primary admin interface — a full command center with sidebar nav, pinned h
 
 ## 10. User Timeline (`/dashboard/users/:userId/timeline`)
 
-**File:** `src/dashboard/UserTimeline.jsx` (451 lines)
+**File:** `src/dashboard/UserTimeline.jsx` (460 lines)
 
 ### 10.1 Dual Mode
 Controls via `mode` prop:
@@ -658,7 +658,7 @@ const getBehavioralPayload = useBehavioral();
 
 ## 12. API Layer & Auth Utilities
 
-**File:** `api.js` (57 lines)
+**File:** `api.js` (68 lines)
 
 ### 12.1 Axios Instance
 - Base URL from `VITE_API_BASE_URL` env var, fallback `http://localhost:9000/api`
@@ -820,4 +820,4 @@ Inline colors used:
 ---
 
 *Report generated from source analysis on 2026-06-17. Last updated after bug-fix pass: 30 bugs fixed across 14 files.*
-*Covering all 11 JSX components (2,249 combined lines), behavioral SDK (204 lines), API layer (57 lines), CSS (120 lines), and Tailwind config (81 lines).*
+*Covering all 10 JSX components (2,290 combined lines), behavioral SDK (204 lines), API layer (68 lines), CSS (120 lines), and Tailwind config (81 lines).*

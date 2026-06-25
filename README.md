@@ -145,7 +145,7 @@ python simulate_attack.py
 |---|---|
 | Backend API | http://localhost:9000 |
 | API Docs (Swagger) | http://localhost:9000/docs |
-| Admin Dashboard | http://localhost:3000/admin |
+| Admin Dashboard | http://localhost:3000/dashboard |
 | User Login | http://localhost:3000/login |
 
 ---
@@ -204,9 +204,7 @@ sentinelai/
 ## 🧪 Running Tests
 
 ```bash
-cd backend
-python test_scorer.py        # Tests trust score pipeline
-python test_rules.py         # Tests rules engine with sample inputs
+./venv/bin/python tests/project_suite.py        # Full offline test suite
 ```
 
 ---
