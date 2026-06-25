@@ -45,6 +45,12 @@ Every user gets a **Trust Score (0–100)** that updates in real time based on:
 
 ---
 
+## 🎥 Demo Video
+
+[![SentinelAI Demo](https://img.youtube.com/vi/iTOZNLj9ukQ/maxresdefault.jpg)](https://youtu.be/iTOZNLj9ukQ)
+
+---
+
 ## 🏗️ Architecture
 
 ```mermaid
