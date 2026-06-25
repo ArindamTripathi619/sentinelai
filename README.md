@@ -279,6 +279,10 @@ Short integration notes for common tooling:
 
 ## 📄 License
 
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for full text.
+
+Built for educational/hackathon purposes as a submission for ECLearnix & All College Event — Domain 5: Cyber Security & Forensic Science.
+
 ## 🔁 Pipeline & CI/CD
 
 This repository includes a minimal, practical CI/CD and local pipeline designed to make development, testing, and demos repeatable.
@@ -292,4 +296,4 @@ This repository includes a minimal, practical CI/CD and local pipeline designed 
 
 Keep this section short and link to any repo-specific CI workflows you add (e.g., `.github/workflows/ci.yml`).
 
-MIT — Built for educational/hackathon purposes.
+
