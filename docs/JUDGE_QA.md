@@ -737,21 +737,24 @@ For demo reliability, we also have `127.0.0.1` mocked to return `GEO_LOCAL_MOCK_
 **Answer:** Currently, secrets are stored in `.env`. Production would use:
 
 1. **Environment-specific secret stores** — HashiCorp Vault, AWS Secrets Manager, or Doppler
-2. **Non-default JWT secret** — The code defaults to `your_super_secret_key_here` which would be catastrophic in production. We've noted this in `AGENTS.md`: "JWT default hard-fails in non-dev environments"
-3. **SMTP credentials** — Separated by environment (dev Gmail account vs production transactional email service)
+2. **Non-default JWT secret** — The code at `backend/auth.py:48` defaults to `your-secret-key-change-in-prod`. A safety guard at line 49-53 **raises `RuntimeError`** if this default is detected outside development mode, and emits a warning in development. In production, you'd use a proper 32+ byte random secret.
+3. **SMTP credentials** — Configurable via env vars (`SMTP_HOST`, `SMTP_EMAIL`, `SMTP_APP_PASSWORD`, etc.) with `smtp.gmail.com` as the default host. Per-environment separation relies on separate `.env` files or external secret management.
 4. **Database passwords** — Rotated on a schedule, injected via container secrets
 
 ---
 
-### Q11.3 The ML model file (`ml_model.pkl`) is tracked in git. Is that intentional?
+### Q11.3 The ML model file (`ml_model.pkl`) — is it version-controlled?
 
-**Answer:** Yes, for a hackathon — it lets judges clone and run without retraining. The model is small (~200KB, Isolation Forest).
+**Answer:** It exists on disk but is **gitignored** (`*.pkl` in `.gitignore` line 20). Judges need to regenerate it:
+```bash
+python scripts/generate_training_data.py && python backend/ml_model.py --train
+```
+This is the correct pattern — ML artifacts should not live in git.
 
 In production, you would:
-1. Add `*.pkl` to `.gitignore`
-2. Store model artifacts in S3/GCS/Blob Storage with versioning
-3. Load the model from the storage URL via the `ML_MODEL_PATH` env var
-4. Use CI/CD to retrain and push new model artifacts
+1. Store model artifacts in S3/GCS/Blob Storage with versioning
+2. Load the model from the storage URL via the `ML_MODEL_PATH` env var
+3. Use CI/CD to retrain and push new model artifacts
 
 ---
 
