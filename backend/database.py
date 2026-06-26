@@ -3,9 +3,8 @@ from sqlalchemy.orm import sessionmaker
 from models import Base
 import os
 
-# By default the project falls back to a local SQLite DB for convenience.
-# For development and testing we recommend running a local Postgres and setting
-# the `DATABASE_URL` env var, e.g.:
+# Primary dev DB is PostgreSQL (via docker-compose). Falls back to SQLite
+# when `DATABASE_URL` is unset for zero-setup convenience.
 # DATABASE_URL=postgresql+psycopg2://sentinelai:sentinelai@127.0.0.1:5432/sentinelai
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sentinel.db")
 

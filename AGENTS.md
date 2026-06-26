@@ -23,7 +23,7 @@ docker compose -f docker-compose.monitoring.yml up -d
 
 - **Backend:** FastAPI at `backend/main.py`. Loads `.env` from repo root (not `backend/`). Middleware order (last→first): CORS, TrustedHost, RequestTiming, SecurityHeaders.
 - **Frontend:** React + Vite + Tailwind. Dev server on port 3000. API base from `VITE_API_BASE_URL` env (default `http://localhost:9000/api`).
-- **DB:** SQLite by default (`./sentinel.db`). Postgres via docker-compose (`DATABASE_URL=postgresql+psycopg2://sentinelai:sentinelai@127.0.0.1:5432/sentinelai`). Tables auto-created on startup.
+- **DB:** PostgreSQL via docker-compose for dev, with SQLite fallback if `DATABASE_URL` is unset (`DATABASE_URL=postgresql+psycopg2://sentinelai:sentinelai@127.0.0.1:5432/sentinelai`). Tables auto-created on startup.
 - **Trust score:** `100 - rule_penalty (0-60) - behavioral_penalty (0-25) - ml_penalty (0-15)`. Bands: >70 direct, 40-70 OTP, 20-39 OTP+CAPTCHA, <20 quarantined.
 
 ## Key quirks

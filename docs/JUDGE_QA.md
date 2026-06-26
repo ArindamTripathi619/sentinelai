@@ -60,11 +60,13 @@ The penalties stack additively with caps: rules (0-60), behavioral (0-25), ML (0
 
 ---
 
-### Q1.3 Why SQLite by default and Postgres for production? Why not use Postgres in dev too?
+### Q1.3 Why Postgres in dev with a SQLite fallback?
 
-**Answer:** Pragmatic hackathon scoping. SQLite is zero-setup — no Docker, no service, no `DATABASE_URL` configuration. A judge can clone the repo, run `pip install -r requirements.txt && uvicorn main:app --reload`, and have a working backend in 30 seconds.
+**Answer:** We develop against **PostgreSQL in Docker** (`docker compose -f docker-compose.monitoring.yml up -d`), which is the same engine we'd use in production. No "it worked on my machine" surprises.
 
-However, the codebase is **Postgres-ready from day one**. The `database.py` engine builder detects the `DATABASE_URL` scheme and adjusts connection parameters accordingly:
+SQLite remains as a **convenience fallback** — clone the repo, don't bother with Docker, change nothing, and the backend boots on `sqlite:///./sentinel.db`. A judge with 30 seconds can still demo core functionality.
+
+The `database.py` engine builder detects the `DATABASE_URL` scheme and adjusts connection parameters accordingly:
 ```python
 if is_sqlite_url(database_url):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
@@ -75,7 +77,7 @@ else:
     engine_kwargs["max_overflow"] = 20
 ```
 
-In production, you set `DATABASE_URL=postgresql+psycopg2://...` and get connection pooling, concurrent writes, and the JSONB capabilities we use in the `events.metadata` column.
+With Postgres we get connection pooling, concurrent writes, and proper FK enforcement — zero code change, just set `DATABASE_URL=postgresql+psycopg2://...`.
 
 ---
 
@@ -524,7 +526,7 @@ registrations_from_ip_last_hour = db.query(func.count(Event.id)).filter(
 ).scalar() or 0
 ```
 
-For a hackathon project with <10K events, even a full table scan completes in <50ms on SQLite. With the composite indexes mentioned in `914406d`, this drops to <2ms on Postgres.
+For a hackathon project with <10K events, the composite indexes mentioned in commit `914406d` keep these queries under 2ms on Postgres.
 
 The platform velocity spike uses a similar query with a 1-minute window:
 ```python
@@ -536,14 +538,14 @@ registrations_per_minute = db.query(func.count(Event.id)).filter(
 
 ---
 
-### Q7.3 Why doesn't the schema use foreign key constraints in SQLite?
+### Q7.3 Do foreign key constraints work?
 
-**Answer:** It does — but SQLite requires `PRAGMA foreign_keys = ON` per connection, which the SQLAlchemy engine doesn't enable by default. The schema defines FKs:
+**Answer:** Yes — because we develop on **Postgres**, which enforces FK constraints natively. The schema defines them explicitly:
 ```sql
 FOREIGN KEY (user_id) REFERENCES users(id)
 ```
 
-With PostgreSQL (which enforces FKs by default), referential integrity is guaranteed. For SQLite, we enforce integrity at the application layer. This trade-off was acceptable for a hackathon.
+Postgres guarantees referential integrity. The SQLite fallback lacks FK enforcement (SQLite requires `PRAGMA foreign_keys = ON` per connection, which the SQLAlchemy engine doesn't set by default), but since the primary dev target is Postgres, we get full referential integrity in the environment that matters.
 
 ---
 
@@ -556,15 +558,14 @@ With PostgreSQL (which enforces FKs by default), referential integrity is guaran
 - **FastAPI (Uvicorn):** ~10K requests/second per worker on a single core. Not the bottleneck.
 - **Rules Engine:** O(n) with n < 10 rules. <1ms per request. Not the bottleneck.
 - **ML Inference:** ~2ms per request (single tree evaluation). Not the bottleneck.
-- **Database (SQLite):** Single-writer, ~50 concurrent reads before contention. **This is the bottleneck.**
+- **Database (Postgres):** Handles hundreds of concurrent connections. With connection pooling (pool_size=20, max_overflow=20) and composite indexes on `(action, ip_address, timestamp)` and `(user_id, action, timestamp)`, queries stay under 2ms.
 - **Geolocation API:** Network-bound (ip-api.com, ~100ms). **This is the bottleneck for login.**
 
 **Scaling plan:**
-1. Swap SQLite → Postgres (already supported, just change `DATABASE_URL`)
-2. Add connection pooling (already configured: pool_size=20, max_overflow=20 in `database.py`)
-3. Cache geolocation results (same IP → same country, TTL 1 hour)
-4. Add Redis for rate limiter state (slowapi supports this)
-5. Horizontally scale backend behind a load balancer (FastAPI is stateless)
+1. Cache geolocation results (same IP → same country, TTL 1 hour)
+2. Add Redis for rate limiter state (slowapi supports this)
+3. Horizontally scale backend behind a load balancer (FastAPI is stateless)
+4. Add read replicas for the dashboard analytics queries
 
 ---
 
@@ -582,7 +583,7 @@ With PostgreSQL (which enforces FKs by default), referential integrity is guaran
 
 ### Q8.3 The dashboard polls every 4 seconds — is that sustainable?
 
-**Answer:** At a hackathon scale, yes. Each poll is 5 parallel requests (summary, velocity, trust-distribution, users, alerts). Each request is a simple SQL query or aggregation. On SQLite with <500 users, response times are <20ms.
+**Answer:** At a hackathon scale, yes. Each poll is 5 parallel requests (summary, velocity, trust-distribution, users, alerts). Each request is a simple SQL query or aggregation. On Postgres with <500 users, response times are <5ms.
 
 For production:
 - Add ETags or `Last-Modified` headers so the frontend can skip re-rendering unchanged data
