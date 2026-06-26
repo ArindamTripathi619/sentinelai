@@ -797,7 +797,7 @@ These are documented in `AGENTS.md` under "Key quirks" — lessons learned that 
 1. **Complete the Events page** — Currently a placeholder ("under construction"). Real event listing for non-admin users.
 2. **Trust repair mechanism** — Let users restore their trust score by completing challenges (reCAPTCHA-style gradual trust building).
 3. **Admin notification system** — Email/Slack alerts when critical alerts fire (currently only visible on dashboard).
-4. **More attack scenarios** — Credential stuffing simulation, session replay detection, simultaneous login detection.
+4. **More attack scenarios** — Session replay detection and simultaneous login detection. (Credential stuffing simulation is already implemented in `scripts/varied_simulation.py`, `scripts/hackathon_demo.py`, and `scripts/comprehensive_security_test.py`.)
 5. **End-to-end tests** — Playwright/Cypress tests for the full auth flow (register → login → OTP → dashboard).
 
 ---
