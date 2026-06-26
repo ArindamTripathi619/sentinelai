@@ -56,7 +56,7 @@ If we had put everything into a single ML model, we'd lose the ability to:
 - **Override** specific rules without retraining (e.g., reducing velocity penalty during a legit marketing campaign)
 - **Debug** the system when it misclassifies (we can look at each layer independently)
 
-The penalties stack additively with caps: rules (0-60), behavioral (0-25), ML (0-15). Each cap prevents any single layer from dominating.
+The penalties stack additively with caps: rules (typically 0-60 depending on combination, no hard cap), behavioral (0-25), ML (0-15). Each cap prevents any single layer from dominating.
 
 ---
 
@@ -155,7 +155,7 @@ These are configurable via `TRUST_THRESHOLD_DIRECT_LOGIN`, `TRUST_THRESHOLD_OTP`
 
 **Answer:** Two validation approaches:
 
-1. **Synthetic validation.** The `seed_normal_users.py` script generates 50 users with human-like behavioral data (typing variance 100-300ms, completion time 20-80s, mouse moves 20-80). These consistently score 70+ (median ~85). The `simulate_attack.py` script generates obvious bots (typing variance <5ms, completion <2s, 0 mouse moves). These score below 20.
+1. **Synthetic validation.** The `seed_normal_users.py` script generates 50 users with human-like behavioral data (typing variance 100-300ms, completion time 20-80s, mouse moves 20-120). These consistently score 70+ (median ~85). The `simulate_attack.py` script generates obvious bots (typing variance <5ms, completion <2s, 0 mouse moves). These score below 20.
 
 2. **Delta check.** The `demo/score` endpoint (`backend/main.py:221`) lets us test any scenario and see the exact penalty breakdown. A legitimate user gets:
    ```
@@ -270,13 +270,13 @@ This is the same approach Google reCAPTCHA uses — client-side signals are weig
 | Platform Velocity | Registrations per minute > 10 | 0 (alert only) | `velocity_spike` / high | `check_platform_velocity_spike():229-253` |
 | Geo Drift | Same user logs in from 2 countries within 120 min | +30 (login only) | `geo_drift` / high | `check_geo_drift():194-226` |
 
-The maximum possible `rule_penalty` a registration can accumulate is 60 (velocity 25 + email 20 + speed 20 + device 15 = 80, but capped at 60 in practice by typical combinations).
+The maximum possible `rule_penalty` a registration can accumulate is 80 (velocity 25 + email 20 + speed 20 + device 15). In practice, typical combinations cap around 60 because not all rules trigger simultaneously.
 
 ---
 
 ### Q4.2 How is the disposable domain list maintained? Is it comprehensive?
 
-**Answer:** The core list (`_DISPOSABLE_CORE` in `rules.py:19-46`) contains 40+ well-known disposable domains sourced from public blocklists (mailinator, guerrillamail, yopmail, trashmail, etc.). It's seeded at module load time.
+**Answer:** The core list (`_DISPOSABLE_CORE` in `rules.py:19-47`) contains 40+ well-known disposable domains sourced from public blocklists (mailinator, guerrillamail, yopmail, trashmail, etc.). It's seeded at module load time.
 
 Additionally, the `DISPOSABLE_DOMAINS_EXTRA` env var lets operators extend the list without code changes. Example:
 ```
@@ -337,11 +337,11 @@ The geo data comes from `ip-api.com` (free, no key) via `geo.py`. For local deve
    - Semi-automated (borderline cases, hardest to detect)
 
    The sanity check in `ml_model.py:84-88` verifies that malicious samples are flagged:
-   ```python
-   predicted = model.predict(malicious_features)
-   flagged = (predicted == -1).sum()
-   print(f"Sanity check: {flagged}/{len(malicious)} malicious samples correctly flagged")
-   ```
+    ```python
+    preds = model.predict(malicious_df.values)
+    flagged = (preds == -1).sum()
+    print(f"Sanity check: {flagged}/{len(malicious_df)} malicious samples correctly flagged")
+    ```
 
 3. **Real-world validation path.** In production, you'd deploy the model in shadow mode (log predictions but don't act on them), collect ground truth via admin review flags, and retrain quarterly. The architecture supports this — the ML penalty is capped at 15 points specifically so bad model performance doesn't break the system.
 
@@ -418,7 +418,7 @@ All auth events are logged to the `events` table with `trust_score_at_time`, ena
 **Answer:**
 - **Algorithm:** HS256 (HMAC with SHA-256)
 - **Expiry:** 24 hours (configurable via `JWT_EXPIRE_HOURS` env var)
-- **Payload:** `{sub: user_id, email, is_admin, exp, iat}`
+- **Payload:** `{sub: user_id, email, is_admin, exp}`
 - **Storage:** `localStorage` under key `sentinelai_token`
 - **Frontend interceptor:** `api.js` attaches `Authorization: Bearer <token>` to every request. A 401 response clears all session data and redirects to `/login`.
 
@@ -434,16 +434,14 @@ The backend's `AdminGuard` also verifies JWT expiry server-side. This is importa
 
 ### Q6.3 What rate limiting is in place?
 
-**Answer:** We use `slowapi` with the `get_remote_address` key function:
+**Answer:** We use `slowapi` with a custom `_rate_limit_key` function that resolves IP from `X-Forwarded-For` header → `payload.ip_address` → `request.client.host`:
 
 | Endpoint | Rate Limit | Rationale |
 |---|---|---|
-| `POST /api/register` | 5/min/IP | Prevent mass account creation |
+| `POST /api/register` | 30/min/IP | Prevent mass account creation |
 | `POST /api/login` | 10/min/IP | Throttle brute force attempts |
 | `POST /api/forgot-password` | 3/min/IP | Prevent email bombing |
 | `POST /api/reset-password` | 5/min/IP | Throttle token brute force |
-
-Rate limiter key defaults to `get_remote_address` which reads `request.client.host`. Behind proxies, this should be adjusted to read `X-Forwarded-For`.
 
 ---
 
@@ -451,9 +449,9 @@ Rate limiter key defaults to `get_remote_address` which reads `request.client.ho
 
 **Answer:** bcrypt with 12 salt rounds via `backend/auth.py`:
 ```python
-from passlib.context import CryptContext
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-hash_password(password)  # Uses 12 rounds by default
+import bcrypt
+salt = bcrypt.gensalt(rounds=12)
+hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
 ```
 
 The 12 rounds (~250ms per hash) is the standard security-comfort tradeoff. Each hash includes a unique salt automatically (bcrypt's built-in feature). No plaintext passwords are ever stored.
@@ -493,7 +491,7 @@ This is stateless — no DB storage needed for CAPTCHA sessions. The token carri
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | SSL stripping |
 | `Set-Cookie` | `SameSite=Strict` | CSRF (cookie-based attacks) |
 
-Plus: `TrustedHostMiddleware` prevents Host header injection attacks. CORS is restricted to `FRONTEND_URL` (default `http://localhost:3000`).
+Plus: `TrustedHostMiddleware` prevents Host header injection attacks. CORS is restricted to `FRONTEND_URL` (default `http://localhost:5173`), with `http://localhost:3000` also allowed for backwards compatibility.
 
 ---
 
@@ -501,15 +499,17 @@ Plus: `TrustedHostMiddleware` prevents Host header injection attacks. CORS is re
 
 ### Q7.1 What's the schema? How many tables?
 
-**Answer:** 4 tables defined in `backend/models.py`:
+**Answer:** 5 tables defined in `backend/models.py`:
 
-1. **`users`** — `id` (UUID), `email` (unique), `password_hash`, `trust_score` (default 100), `status` (active/quarantined/blocked), `registered_at`, `last_login_at`, `last_ip`, `last_country`, `is_admin`
+1. **`users`** — `id` (UUID), `email` (unique), `password_hash`, `trust_score` (default 100), `status` (active/quarantined/blocked), `registered_at`, `last_login_at`, `last_ip`, `is_admin`; also stores behavioral snapshot (typing_variance_ms, time_to_complete_sec, mouse_move_count, keypress_count) and ML output (ml_anomaly_score, triggered_flags)
 
-2. **`events`** — `id` (UUID), `user_id` (FK), `action` (register/login/login_failed/otp_sent/etc.), `ip_address`, `country`, `user_agent`, `trust_score_at_time`, `timestamp`, `metadata` (JSON text)
+2. **`events`** — `id` (UUID), `user_id` (FK), `action` (register/login/login_failed/otp_sent/etc.), `ip_address`, `country`, `user_agent`, `trust_score_at_time`, `timestamp`, `metadata_json` (JSON text)
 
-3. **`alerts`** — `id` (UUID), `type` (bot_wave/geo_drift/speed_bot/etc.), `severity` (low/medium/high/critical), `description`, `affected_user_ids` (JSON array), `resolved`, `timestamp`
+3. **`alerts`** — `id` (UUID), `type` (bot_wave/geo_drift/speed_bot/etc.), `severity` (low/medium/high/critical), `description`, `affected_user_ids` (Text — JSON array string), `resolved`, `timestamp`
 
-4. **`otp_sessions`** — `id` (UUID), `user_id` (FK), `otp_code`, `expires_at`, `used`
+4. **`otp_sessions`** — `id` (UUID), `user_id` (FK), `otp_code`, `expires_at`, `used`, `delivery_status` (pending/delivered/failed/console_fallback), `delivery_attempts`, `last_delivery_error`
+
+5. **`password_reset_tokens`** — `id` (UUID), `user_id` (FK, indexed), `token_hash`, `expires_at`, `used`, `created_at`, `ip_address`
 
 Primary keys are UUID strings generated via `models.new_id()` (Python `uuid4`). This avoids sequential ID enumeration attacks and simplifies distributed ID generation.
 
@@ -517,7 +517,7 @@ Primary keys are UUID strings generated via `models.new_id()` (Python `uuid4`). 
 
 ### Q7.2 How are the velocity queries implemented? Are they efficient?
 
-**Answer:** Velocity is checked by querying the `events` table with `GROUP BY` and counting:
+**Answer:** Velocity is checked by querying the `events` table via `func.count`:
 ```python
 registrations_from_ip_last_hour = db.query(func.count(Event.id)).filter(
     Event.action == "register",
@@ -558,7 +558,7 @@ Postgres guarantees referential integrity. The SQLite fallback lacks FK enforcem
 - **FastAPI (Uvicorn):** ~10K requests/second per worker on a single core. Not the bottleneck.
 - **Rules Engine:** O(n) with n < 10 rules. <1ms per request. Not the bottleneck.
 - **ML Inference:** ~2ms per request (single tree evaluation). Not the bottleneck.
-- **Database (Postgres):** Handles hundreds of concurrent connections. With connection pooling (pool_size=20, max_overflow=20) and composite indexes on `(action, ip_address, timestamp)` and `(user_id, action, timestamp)`, queries stay under 2ms.
+- **Database (Postgres):** Handles hundreds of concurrent connections. With connection pooling (pool_size=20, max_overflow=20) and composite indexes on `(action, ip_address)`, `(action, user_agent)`, and `(action, timestamp)`, queries stay under 2ms.
 - **Geolocation API:** Network-bound (ip-api.com, ~100ms). **This is the bottleneck for login.**
 
 **Scaling plan:**
@@ -600,7 +600,7 @@ For production:
 
 1. **Team velocity.** Two of our five members (Debarshi and Parthiv) had limited TypeScript experience. For a 12-hour hackathon, the cost of type errors was lower than the cost of learning TS.
 
-2. **Project size.** With 2,290 combined lines across 10 JSX components, the type surface is small enough to manage manually. The behavioral SDK (`204 lines`), API layer (`68 lines`), and Tailwind config (`81 lines`) are all independently verified by manual testing.
+2. **Project size.** With 2,384 combined lines across 10 JSX components, the type surface is small enough to manage manually. The behavioral SDK (`204 lines`), API layer (`68 lines`), and Tailwind config (`81 lines`) are all independently verified by manual testing.
 
 **Stretch (if asked):** We'd add TypeScript for any production deployment. The existing JSDoc comments (`// @param {string} email`) already document the critical interfaces.
 
@@ -665,7 +665,7 @@ Both charts have:
 
 **Seeded (prepared before the demo):**
 - 50 normal users via `seed_normal_users.py` (creates a "green" baseline)
-- 12 demo dashboard users via `seed_demo_dashboard.py` (across all trust bands)
+- 13 demo dashboard users (12 non-admin + 1 admin) via `seed_demo_dashboard.py` (across all trust bands)
 
 The attack script runs live with colorful terminal output showing each registration attempt and the resulting trust score. Judges watch the dashboard react in real time — this is what makes it impressive.
 
@@ -692,7 +692,7 @@ For demo reliability, we also have `127.0.0.1` mocked to return `GEO_LOCAL_MOCK_
 
 1. **Script** generates 15 user accounts (`user1@temp.com` through `user15@temp.com`) with:
    - Bot-like behavioral data (typing_variance_ms ≈ 4, time_to_complete_sec ≈ 1.1, mouse_move_count = 0)
-   - All from the same IP address (`45.118.144.200`)
+   - All from the same IP address (`192.168.100.99`)
    - All from the same User-Agent string
 
 2. **Each registration** hits `POST /api/register` with the payload. The scoring pipeline runs:
@@ -807,12 +807,12 @@ These are documented in `AGENTS.md` under "Key quirks" — lessons learned that 
 | File | Purpose | Lines |
 |---|---|---|
 | `backend/main.py` | FastAPI app, middleware, routes, startup | 318 |
-| `backend/auth.py` | JWT, OTP, CAPTCHA, password hashing, auth endpoints | ~600 |
+| `backend/auth.py` | JWT, OTP, CAPTCHA, password hashing, auth endpoints | 839 |
 | `backend/scorer.py` | Trust score calculation, recommendation mapping | 191 |
 | `backend/rules.py` | 6 security rules with penalties and alerts | 320 |
 | `backend/ml_model.py` | Isolation Forest training and inference | 168 |
-| `backend/models.py` | SQLAlchemy ORM models (4 tables) | ~80 |
-| `backend/database.py` | Engine builder, connection pooling | 40 |
+| `backend/models.py` | SQLAlchemy ORM models (5 tables) | 104 |
+| `backend/database.py` | Engine builder, connection pooling | 39 |
 | `backend/geo.py` | IP geolocation via ip-api.com | 93 |
 | `frontend/src/sdk/behavioral.js` | Client-side behavioral signal collection | 204 |
 | `frontend/src/dashboard/Dashboard.jsx` | Admin command center (5 panels) | 699 |
